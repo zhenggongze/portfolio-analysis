@@ -1,0 +1,2257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>持仓分析系统</title>
+  <style>
+    :root {
+      --primary: #8B2942;
+      --primary-dark: #5C1E33;
+      --primary-light: #F9EDF0;
+      --gold: #C9A962;
+      --gold-dark: #A68B4B;
+      --red: #9B2D4A;
+      --green: #2D5A3D;
+      --bg: #f4f4f5;
+      --card: #ffffff;
+      --border: #e4e4e7;
+      --text: #18181b;
+      --text-secondary: #71717a;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: var(--primary-dark);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .sidebar-logo {
+      width: 32px; height: 32px;
+      background: var(--gold);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; font-size: 18px; color: var(--primary-dark);
+    }
+    .sidebar h1 { font-size: 16px; font-weight: 700; }
+    .sidebar p { font-size: 11px; opacity: 0.6; }
+    .sidebar nav { flex: 1; padding: 16px; }
+    .sidebar nav a {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; border-radius: 8px;
+      color: rgba(255,255,255,0.7);
+      text-decoration: none; font-size: 14px;
+      transition: all 0.2s; margin-bottom: 4px;
+    }
+    .sidebar nav a:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .sidebar nav a.active { background: var(--primary); color: var(--gold); }
+    .sidebar-footer {
+      padding: 16px; border-top: 1px solid rgba(255,255,255,0.1);
+      text-align: center; font-size: 11px; opacity: 0.5;
+    }
+    .sidebar.collapsed { width: 60px; overflow: hidden; }
+    .sidebar.collapsed .sidebar-header { padding: 12px 8px; flex-direction: column; gap: 4px; }
+    .sidebar.collapsed .sidebar-header > div:first-of-type { flex: unset; display: none; }
+    .sidebar.collapsed h1, .sidebar.collapsed p { display: none; }
+    .sidebar.collapsed .sidebar-logo { width: 28px; height: 28px; font-size: 14px; margin: 0 auto; }
+    .sidebar.collapsed nav { padding: 8px; }
+    .sidebar.collapsed nav a { justify-content: center; padding: 10px 8px; font-size: 0; white-space: nowrap; overflow: hidden; }
+    .sidebar.collapsed nav a svg { flex-shrink: 0; width: 20px; height: 20px; }
+    .sidebar.collapsed nav a span, .sidebar.collapsed nav a::after { display: none; }
+    .sidebar.collapsed nav div { display: none; }
+    .sidebar.collapsed .sidebar-footer { font-size: 9px; padding: 8px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar.collapsed .privacy-btn { width: 28px; height: 28px; }
+    .sidebar.collapsed .sidebar-collapse-btn { margin: 0 auto; }
+    .sidebar-collapse-btn {
+      background: none; border: none; cursor: pointer; padding: 4px;
+      color: rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s; flex-shrink: 0; border-radius: 4px;
+    }
+    .sidebar-collapse-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    .sidebar-collapse-btn svg { transition: transform 0.3s; }
+    .sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+    .sidebar { transition: width 0.25s ease; }
+    .sidebar .sidebar-header, .sidebar nav, .sidebar nav a, .sidebar-footer {
+      transition: all 0.25s ease;
+    }
+    .main {
+      flex: 1; overflow: auto; padding: 32px;
+    }
+    .page-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;
+    }
+    .page-header h2 { font-size: 24px; font-weight: 700; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 18px; font-weight: 600; margin-bottom: 16px;
+    }
+    .stat-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .stat-card .label { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+    .stat-card .value { font-size: 22px; font-weight: 700; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
+    .stat-card .trend { font-size: 13px; margin-top: 4px; }
+    .chart-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;
+    }
+    .chart-container { position: relative; height: 340px; }
+    .chart-container canvas { width: 100% !important; height: 100% !important; }
+    .chart-legend {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; justify-content: center;
+    }
+    .chart-legend-item {
+      display: flex; align-items: center; gap: 6px; font-size: 13px;
+    }
+    .chart-legend-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 14px; min-width: 700px;
+    }
+    thead th {
+      text-align: left; padding: 12px 16px;
+      background: #fafafa; border-bottom: 1px solid var(--border);
+      color: var(--text-secondary); font-weight: 500; font-size: 13px;
+    }
+    tbody td {
+      padding: 12px 16px; border-bottom: 1px solid #f4f4f5;
+    }
+    tbody tr:hover td { background: #fafafa; }
+    .mono { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
+    .positive { color: var(--red); }
+    .negative { color: var(--green); }
+    .tag {
+      display: inline-block; padding: 2px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 500;
+    }
+    .tag-primary { background: var(--primary-light); color: var(--primary-dark); }
+    .tag-danger { background: #fef2f2; color: var(--red); }
+    .tag-warning { background: #fefce8; color: #a16207; }
+    .tag-success { background: #f0fdf4; color: #15803d; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 20px; border: none; border-radius: 8px;
+      font-size: 14px; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .hidden { display: none; }
+    .risk-section {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;
+    }
+    .risk-box {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 16px; border-radius: 8px; margin-bottom: 8px;
+    }
+    .progress-bar {
+      width: 100%; height: 8px; background: #e4e4e7; border-radius: 999px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; border-radius: 999px; transition: width 0.5s;
+    }
+    .top-stock-item {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+    }
+    .top-stock-rank {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: #e4e4e7; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; flex-shrink: 0;
+    }
+    .top-stock-info { flex: 1; }
+    .top-stock-header {
+      display: flex; justify-content: space-between; margin-bottom: 4px;
+    }
+    .top-stock-name { font-weight: 500; font-size: 14px; }
+    .top-stock-pct { font-family: monospace; font-weight: 600; font-size: 14px; }
+    .expand-btn {
+      padding: 4px; border: none; background: none; cursor: pointer; color: var(--text-secondary);
+      transition: transform 0.2s; display: inline-flex; align-items: center;
+    }
+    .expand-btn:hover { color: var(--text); }
+    .detail-row td { padding: 0 !important; }
+    .detail-content { padding: 12px 16px 12px 48px; background: #fafafa; }
+    .detail-content table { font-size: 13px; }
+    .detail-content th { font-size: 12px; padding: 6px 12px; }
+    .detail-content td { padding: 6px 12px; }
+    input[type="number"] {
+      width: 100%; padding: 10px 14px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; font-family: inherit;
+      outline: none; transition: border-color 0.2s;
+    }
+    input[type="number"]:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(139,41,66,0.1); }
+    .alert {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 16px; border-radius: 12px; margin-bottom: 24px;
+    }
+    .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; }
+    .alert-info h4 { color: #1e40af; }
+    .alert-info p, .alert-info li { color: #3b82f6; }
+    .alert-warning { background: #fefce8; border: 1px solid #fde68a; }
+    .alert-warning h4 { color: #92400e; }
+    .alert-warning li { color: #a16207; }
+    .alert svg { flex-shrink: 0; margin-top: 2px; }
+    .privacy-btn {
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
+      background: #fff; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; transition: all 0.2s; flex-shrink: 0;
+    }
+    .privacy-btn:hover { background: #f4f4f5; }
+    .privacy-btn.on { background: var(--primary); border-color: var(--primary); }
+    .privacy-btn.on svg { stroke: #fff; }
+    .privacy-hidden { filter: blur(7px); pointer-events: none; user-select: none; }
+    body.privacy-mode .privacy-sensitive,
+    body.privacy-mode canvas,
+    body.privacy-mode #calcLogPanel,
+    body.privacy-mode input[type="number"] {
+      filter: blur(7px); pointer-events: none; user-select: none;
+    }
+    @media screen and (max-width: 768px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100% !important; height: auto; position: relative; }
+      .sidebar.collapsed { width: 100% !important; height: auto; }
+      .sidebar.collapsed .sidebar-header { flex-direction: row; justify-content: space-between; padding: 8px 12px; }
+      .sidebar.collapsed .sidebar-header > div:first-of-type { display: flex; align-items: center; gap: 8px; }
+      .sidebar.collapsed .sidebar-logo { margin: 0; width: 24px; height: 24px; font-size: 12px; }
+      .sidebar.collapsed h1 { display: block; font-size: 14px; }
+      .sidebar.collapsed p { display: none; }
+      .sidebar.collapsed nav { display: none; }
+      .sidebar.collapsed .sidebar-footer { display: none; }
+      .sidebar.collapsed .sidebar-collapse-btn { margin: 0; }
+      .sidebar nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
+      .sidebar nav a { flex: 1; min-width: calc(33.33% - 3px); justify-content: center; padding: 8px 6px; }
+      .sidebar nav a span { font-size: 11px; }
+      .main { padding: 10px; }
+      .card { padding: 10px; margin-bottom: 8px; border-radius: 8px; }
+      .card-title { font-size: 14px; margin-bottom: 6px; }
+      .page-header { margin-bottom: 8px; }
+      .page-header h2 { font-size: 16px; }
+      table { font-size: 11px; min-width: 580px; }
+      th, td { padding: 5px 4px; }
+      .tag { font-size: 10px; padding: 1px 6px; }
+    }
+    @media screen and (max-width: 480px) {
+      .sidebar nav a { min-width: calc(50% - 2px); }
+      .main { padding: 8px; }
+      .card { padding: 8px; }
+      table { font-size: 10px; min-width: 520px; }
+      .page-header h2 { font-size: 15px; }
+      th, td { padding: 4px 3px; }
+    }
+    .upload-panel { display:none; }
+    .upload-panel.show { display:block; }
+    .upload-slot {
+      border: 2px dashed var(--border); border-radius: 12px;
+      padding: 20px; text-align: center; cursor: pointer;
+      transition: all 0.2s; position: relative; min-height: 100px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .upload-slot:hover { border-color: var(--primary); background: var(--primary-light); }
+    .upload-slot.has-image { border-style: solid; border-color: var(--primary); padding: 0; }
+    .upload-slot img { max-width: 100%; max-height: 200px; border-radius: 8px; object-fit: contain; }
+    .upload-slot .placeholder { color: var(--text-secondary); font-size: 13px; }
+    .upload-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5); z-index: 999;
+      display: none; align-items: center; justify-content: center;
+    }
+    .upload-overlay.show { display: flex; }
+    .upload-dialog {
+      background: white; border-radius: 16px; padding: 32px;
+      width: 90%; max-width: 640px; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .btn-upload { background: var(--gold); color: var(--primary-dark); }
+    .btn-upload:hover { background: var(--gold-dark); }
+    .parse-status { padding: 8px 16px; border-radius: 8px; font-size: 13px; margin-top: 8px; }
+    .parse-status.loading { background: #eff6ff; color: #2563eb; }
+    .parse-status.success { background: #f0fdf4; color: #15803d; }
+    .parse-status.error { background: #fef2f2; color: #dc2626; }
+  </style>
+<script>
+// Service Worker - 手机首次打开即缓存，之后离线也能用
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+</script>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">¥</div>
+    <div style="flex:1">
+      <h1>持仓分析系统</h1>
+      <p>Portfolio Analyzer</p>
+    </div>
+    <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="折叠侧边栏">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button class="privacy-btn" id="privacyToggle" onclick="togglePrivacy()" title="切换隐私模式">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </button>
+  </div>
+  <nav>
+    <a href="#/" class="active" onclick="navigate('/')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+      持仓统计
+    </a>
+    <a href="#/history/overview" onclick="navigate('/history/overview')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      历史记录概览
+    </a>
+    <a href="#/history/detail" onclick="navigate('/history/detail')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      历史记录明细
+    </a>
+    <a href="#/entry" onclick="navigate('/entry')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      数据录入
+    </a>
+  </nav>
+  <div class="sidebar-footer" id="sidebarFooter">数据更新日期: 2026-06-01</div>
+</div>
+
+<main class="main" id="content"></main>
+
+<script>
+// ====== 数据 ======
+const data = {
+  funds: [
+    { code: '162412', name: '华宝医疗ETF联接A', type: '医疗', amount: 245930.48, profit: -45158.77, profitRate: -15.51 },
+    { code: '501057', name: '汇添富中证新能源汽车产业指数(LOF)A', type: '新能源车', amount: 152036.19, profit: 50716.59, profitRate: 50.06 },
+    { code: '163407', name: '兴全沪深300指数(LOF)A', type: '沪深300', amount: 92821.95, profit: 35240.94, profitRate: 61.20 },
+    { code: '161725', name: '招商中证白酒指数(LOF)A', type: '白酒', amount: 16417.25, profit: -6116.24, profitRate: -27.14 },
+  ],
+  stocks: [
+    { code: '159915', name: '创业板ETF', shares: 110800, price: 3.752, amount: 415649.10, profit: 304840.44, profitRate: 275.11 },
+    { code: '513050', name: '中概互联网ETF', shares: 216600, price: 1.183, amount: 256237.80, profit: -5387.68, profitRate: -2.06 },
+    { code: '510300', name: '沪深300ETF', shares: 39700, price: 4.936, amount: 195959.20, profit: 84308.95, profitRate: 75.51 },
+    { code: '161725', name: '白酒基金LOF', shares: 276900, price: 0.575, amount: 159217.50, profit: -14861.94, profitRate: -8.54 },
+    { code: '510500', name: '中证500ETF', shares: 12089, price: 8.406, amount: 101620.13, profit: 55445.19, profitRate: 120.08 },
+    { code: '515000', name: '信息技术ETF', shares: 44200, price: 1.172, amount: 51802.40, profit: 70089.29, profitRate: 383.28 },
+    { code: '511880', name: '银华日利ETF', shares: 300, price: 100.488, amount: 30146.40, profit: 23.00, profitRate: 0.08 },
+    { code: '600089', name: '特变电工', shares: 200, price: 26.120, amount: 5224.00, profit: -790.58, profitRate: -13.14 },
+  ],
+  douTotal: parseFloat(localStorage.getItem('portfolio_douTotal') || '1278618.04') || 1278618.04,
+  zeTotal: parseFloat(localStorage.getItem('portfolio_zeTotal') || '532240.37') || 532240.37,
+  initialSnapshots: {},
+  clearedAdjustments: {
+    '513050': { name: '中概互联网ETF', amount: 91428 },
+    '162412': { name: '华宝医疗ETF联接A', amount: 26000 },
+  },
+  fundTypeMapping: { '创业板+新能源': ['159915','501057'], '300': ['510300','163407'], '白酒': ['161725'], '医药': ['162412'], '中概互联': ['513050'], '信息+500': ['510500','515000'], '现金': ['511880'] },
+  fundHoldings: {
+    // 华宝医疗ETF联接A 2026Q1 (底层跟踪中证医疗指数, 数据来源:天天基金512170)
+    '162412': [
+      { code: '603259', name: '药明康德', ratio: 11.15 },
+      { code: '300760', name: '迈瑞医疗', ratio: 8.53 },
+      { code: '688271', name: '联影医疗', ratio: 6.98 },
+      { code: '300015', name: '爱尔眼科', ratio: 5.54 },
+      { code: '300759', name: '康龙化成', ratio: 3.59 },
+      { code: '300347', name: '泰格医药', ratio: 3.45 },
+      { code: '300677', name: '英科医疗', ratio: 3.39 },
+      { code: '002432', name: '九安医疗', ratio: 3.09 },
+      { code: '002821', name: '凯莱英', ratio: 2.84 },
+      { code: '002223', name: '鱼跃医疗', ratio: 2.62 },
+    ],
+    // 汇添富中证新能源汽车产业指数 2026Q1 (数据来源:天天基金501057)
+    '501057': [
+      { code: '002594', name: '比亚迪', ratio: 10.06 },
+      { code: '300750', name: '宁德时代', ratio: 9.45 },
+      { code: '300124', name: '汇川技术', ratio: 6.26 },
+      { code: '002050', name: '三花智控', ratio: 4.71 },
+      { code: '603799', name: '华友钴业', ratio: 4.41 },
+      { code: '002460', name: '赣锋锂业', ratio: 4.38 },
+      { code: '300014', name: '亿纬锂能', ratio: 3.83 },
+      { code: '002709', name: '天赐材料', ratio: 3.05 },
+      { code: '002466', name: '天齐锂业', ratio: 2.84 },
+      { code: '002738', name: '中矿资源', ratio: 2.65 },
+    ],
+    // 招商中证白酒指数 2026Q1 (数据来源:天天基金161725)
+    '161725': [
+      { code: '600519', name: '贵州茅台', ratio: 18.33 },
+      { code: '000858', name: '五粮液', ratio: 16.14 },
+      { code: '000568', name: '泸州老窖', ratio: 14.70 },
+      { code: '600809', name: '山西汾酒', ratio: 14.32 },
+      { code: '002304', name: '洋河股份', ratio: 7.74 },
+      { code: '000596', name: '古井贡酒', ratio: 4.51 },
+      { code: '603369', name: '今世缘', ratio: 4.07 },
+      { code: '603198', name: '迎驾贡酒', ratio: 2.28 },
+      { code: '600702', name: '舍得酒业', ratio: 1.85 },
+      { code: '603589', name: '口子窖', ratio: 1.82 },
+    ],
+    // 创业板ETF 2026Q1 (数据来源:天天基金159915)
+    '159915': [
+      { code: '300750', name: '宁德时代', ratio: 19.69 },
+      { code: '300308', name: '中际旭创', ratio: 9.30 },
+      { code: '300502', name: '新易盛', ratio: 7.53 },
+      { code: '300059', name: '东方财富', ratio: 4.64 },
+      { code: '300274', name: '阳光电源', ratio: 4.27 },
+      { code: '300476', name: '胜宏科技', ratio: 2.92 },
+      { code: '300394', name: '天孚通信', ratio: 2.55 },
+      { code: '300124', name: '汇川技术', ratio: 2.52 },
+      { code: '300760', name: '迈瑞医疗', ratio: 1.91 },
+      { code: '300498', name: '温氏股份', ratio: 1.76 },
+    ],
+    // 中概互联网ETF 2026Q1 (数据来源:天天基金513050)
+    '513050': [
+      { code: '00700', name: '腾讯控股', ratio: 30.65 },
+      { code: '09988', name: '阿里巴巴-W', ratio: 26.06 },
+      { code: 'PDD', name: '拼多多', ratio: 7.64 },
+      { code: '01810', name: '小米集团-W', ratio: 6.91 },
+      { code: '03690', name: '美团-W', ratio: 6.00 },
+      { code: '09618', name: '京东集团-SW', ratio: 3.85 },
+      { code: '09999', name: '网易-S', ratio: 3.57 },
+      { code: '09888', name: '百度集团-SW', ratio: 3.29 },
+      { code: '09961', name: '携程集团-S', ratio: 2.76 },
+      { code: '01024', name: '快手-W', ratio: 1.63 },
+    ],
+    // 沪深300ETF 2026Q1 (数据来源:天天基金510300)
+    '510300': [
+      { code: '300750', name: '宁德时代', ratio: 4.27 },
+      { code: '600519', name: '贵州茅台', ratio: 3.65 },
+      { code: '300308', name: '中际旭创', ratio: 2.55 },
+      { code: '601318', name: '中国平安', ratio: 2.44 },
+      { code: '601899', name: '紫金矿业', ratio: 2.17 },
+      { code: '600036', name: '招商银行', ratio: 1.96 },
+      { code: '300502', name: '新易盛', ratio: 1.77 },
+      { code: '000333', name: '美的集团', ratio: 1.51 },
+      { code: '600900', name: '长江电力', ratio: 1.33 },
+      { code: '601166', name: '兴业银行', ratio: 1.28 },
+    ],
+    // 中证500ETF 2026Q1 (数据来源:新浪财经/天天基金季报)
+    '510500': [
+      { code: '600487', name: '亨通光电', ratio: 1.05 },
+      { code: '600988', name: '赤峰黄金', ratio: 0.73 },
+      { code: '688525', name: '佰维存储', ratio: 0.69 },
+      { code: '002202', name: '金风科技', ratio: 0.64 },
+      { code: '300136', name: '信维通信', ratio: 0.63 },
+      { code: '600549', name: '厦门钨业', ratio: 0.62 },
+      { code: '002353', name: '杰瑞股份', ratio: 0.60 },
+      { code: '600879', name: '航天电子', ratio: 0.59 },
+      { code: '000426', name: '兴业银锡', ratio: 0.57 },
+      { code: '300604', name: '长川科技', ratio: 0.55 },
+    ],
+    // 科技ETF华宝 2026Q1 (数据来源:天天基金515000)
+    '515000': [
+      { code: '300308', name: '中际旭创', ratio: 10.24 },
+      { code: '300502', name: '新易盛', ratio: 9.23 },
+      { code: '600276', name: '恒瑞医药', ratio: 5.16 },
+      { code: '603259', name: '药明康德', ratio: 5.08 },
+      { code: '688041', name: '海光信息', ratio: 4.08 },
+      { code: '002371', name: '北方华创', ratio: 4.03 },
+      { code: '688981', name: '中芯国际', ratio: 3.94 },
+      { code: '603986', name: '兆易创新', ratio: 3.31 },
+      { code: '300476', name: '胜宏科技', ratio: 3.23 },
+      { code: '000725', name: '京东方A', ratio: 3.01 },
+    ],
+    // 兴全沪深300指数增强 2026Q1 (数据来源:天天基金163407)
+    '163407': [
+      { code: '000938', name: '紫光股份', ratio: 6.23 },
+      { code: '601318', name: '中国平安', ratio: 6.05 },
+      { code: '600741', name: '华域汽车', ratio: 4.27 },
+      { code: '600519', name: '贵州茅台', ratio: 3.85 },
+      { code: '601888', name: '中国中免', ratio: 3.74 },
+      { code: '000895', name: '双汇发展', ratio: 3.54 },
+      { code: '601138', name: '工业富联', ratio: 3.32 },
+      { code: '601009', name: '南京银行', ratio: 3.23 },
+      { code: '000100', name: 'TCL科技', ratio: 2.87 },
+      { code: '601088', name: '中国神华', ratio: 2.13 },
+    ],
+  },
+};
+
+// ====== 计算函数 ======
+function calcSummaries() {
+  const total = data.douTotal + data.zeTotal;
+  const tmap = {};
+  Object.entries(data.fundTypeMapping).forEach(([t, codes]) => codes.forEach(c => tmap[c]=t));
+  const typeMergeMap = { '沪深300': '300', '新能源车': '创业板+新能源' }; // 合并类型映射
+  const cmap = {};
+  data.funds.forEach(f => {
+    let cat = tmap[f.code] || f.type;
+    cat = typeMergeMap[cat] || cat; // 如果有合并映射，使用合并后的类型
+    if (!cmap[cat]) cmap[cat] = { amount:0, codes:[] };
+    cmap[cat].amount += f.amount;
+    cmap[cat].codes.push(f.code);
+  });
+  return Object.entries(cmap).map(([cat, info]) => ({ cat, amount: info.amount, ratio: total>0 ? info.amount/total*100 : 0, codes: info.codes }))
+    .sort((a,b) => b.amount - a.amount);
+}
+
+function calcConcentration() {
+  const total = data.douTotal + data.zeTotal;
+  const fmap = {};
+  data.funds.forEach(f => {
+    if (!fmap[f.code]) fmap[f.code] = { name: f.name, amount: 0 };
+    fmap[f.code].amount += f.amount;
+  });
+  data.stocks.forEach(s => {
+    if (!fmap[s.code]) fmap[s.code] = { name: s.name, amount: 0 };
+    fmap[s.code].amount += s.amount;
+  });
+
+  const logs = [];
+  logs.push('=== 总资产 ===');
+  logs.push('豆总资产 = ¥' + data.douTotal.toFixed(2));
+  logs.push('泽总资产 = ¥' + data.zeTotal.toFixed(2));
+  logs.push('总资产 = ¥' + total.toFixed(2));
+  logs.push('funds合计 = ¥' + data.funds.reduce((s,f) => s+f.amount, 0).toFixed(2));
+  logs.push('stocks合计 = ¥' + data.stocks.reduce((s,st) => s+st.amount, 0).toFixed(2));
+
+  logs.push('\n=== 各基金/ETF权重 ===');
+  Object.entries(fmap).forEach(([code, info]) => {
+    logs.push(code + ' ' + info.name + ': ¥' + info.amount.toFixed(2) + ' → 权重 ' + (info.amount/total*100).toFixed(2) + '%');
+  });
+
+  const smap = {};
+  Object.entries(data.fundHoldings).forEach(([fc, holdings]) => {
+    const fund = fmap[fc]; if (!fund) return;
+    const w = fund.amount / (total||1);
+    logs.push('\n--- ' + fc + ' ' + fund.name + ' (权重' + (w*100).toFixed(2) + '%) ---');
+    holdings.forEach(h => {
+      if (!smap[h.code]) smap[h.code] = { name: h.name, total: 0, sources: [] };
+      const contribution = h.ratio * w;
+      smap[h.code].total += contribution;
+      smap[h.code].sources.push({ fundCode: fc, fundName: fund.name, ratio: contribution });
+      logs.push('  ' + h.name + '(' + h.code + '): ' + h.ratio + '% × ' + (w*100).toFixed(2) + '% = ' + (contribution).toFixed(3) + '%');
+    });
+  });
+
+  logs.push('\n=== 前10大集中度排名 ===');
+  const result = Object.entries(smap).map(([code, info]) => ({ code, name: info.name, total: info.total, sources: info.sources }))
+    .sort((a,b) => b.total - a.total);
+  result.slice(0, 10).forEach((s, i) => {
+    logs.push((i+1) + '. ' + s.name + '(' + s.code + '): ' + s.total.toFixed(3) + '%');
+    s.sources.forEach(src => {
+      logs.push('     ← ' + src.fundName + '(' + src.fundCode + '): ' + src.ratio.toFixed(3) + '%');
+    });
+  });
+  window.__calcLog = logs.join('\n');
+
+  return result;
+}
+
+function fmt(n) { return n.toLocaleString('zh-CN', { minFrac:2, maxFrac:2 }); }
+
+function fmtRatio(n) { return n.toFixed(2) + '%'; }
+
+function getAdjusted(code, amount, profit, profitRate) {
+  const adj = data.clearedAdjustments[code];
+  if (!adj) return { profit, profitRate };
+  const newProfit = profit - adj.amount;
+  const cost = amount - profit;
+  const newRate = cost > 0 ? (newProfit / cost) * 100 : 0;
+  return { profit: newProfit, profitRate: newRate };
+}
+
+// ====== Canvas 图表 ======
+const COLORS = ['#8B2942','#A03550','#B84D66','#C96B7D','#D68A97','#C9A962','#D4B87A','#DEC896','#A68B4B','#8A7340'];
+
+function drawPie(canvas, data) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const cx = w/2, cy = h/2, r = Math.min(w, h)/2.5;
+
+  ctx.clearRect(0,0,w,h);
+  const total = data.reduce((s,d) => s+d.value, 0);
+  if (total === 0) return;
+
+  let start = -Math.PI/2;
+  data.forEach((d, i) => {
+    const angle = (d.value / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, start+angle);
+    ctx.closePath();
+    ctx.fillStyle = COLORS[i % COLORS.length];
+    ctx.fill();
+
+    // Label
+    const mid = start + angle/2;
+    const lr = r * 0.65;
+    const lx = cx + Math.cos(mid) * lr;
+    const ly = cy + Math.sin(mid) * lr;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const pct = (d.value / total * 100).toFixed(1);
+    if (pct > 5) ctx.fillText(pct + '%', lx, ly);
+
+    start += angle;
+  });
+
+  // Center hole
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.35, 0, Math.PI*2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+}
+
+function drawBar(canvas, data) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { t: 20, r: 20, b: 40, l: 60 };
+  const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
+
+  ctx.clearRect(0,0,w,h);
+  if (data.length === 0) return;
+
+  const maxV = Math.max(...data.map(d => d.value));
+  const gap = cw / data.length;
+  const bw = Math.min(gap * 0.7, 40);
+
+  // Y axis
+  ctx.strokeStyle = '#e4e4e7';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + ch - (ch * i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+    ctx.fillStyle = '#71717a';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('¥' + ((maxV * i / 4) / 10000).toFixed(0) + '万', pad.l - 8, y);
+  }
+
+  // Bars
+  data.forEach((d, i) => {
+    const x = pad.l + i * gap + (gap - bw) / 2;
+    const bh = d.value / maxV * ch;
+    const y = pad.t + ch - bh;
+
+    ctx.fillStyle = COLORS[i % COLORS.length];
+    ctx.beginPath();
+    ctx.roundRect(x, y, bw, bh, [4,4,0,0]);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#18181b';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(d.label, x + bw/2, pad.t + ch + 8);
+  });
+}
+
+// ====== 路由 ======
+function navigate(path) {
+  window.location.hash = path;
+}
+
+function getRoute() {
+  return window.location.hash.slice(1) || '/';
+}
+
+function toggleAccountDropdown() {
+  const dropdown = document.getElementById('accountDropdown');
+  const arrow = document.getElementById('dropdownArrow');
+  if (dropdown && arrow) {
+    const isOpen = dropdown.style.display !== 'none';
+    dropdown.style.display = isOpen ? 'none' : 'block';
+    arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+  }
+}
+
+function closeAccountDropdown() {
+  const dropdown = document.getElementById('accountDropdown');
+  const arrow = document.getElementById('dropdownArrow');
+  if (dropdown) dropdown.style.display = 'none';
+  if (arrow) arrow.style.transform = 'rotate(0deg)';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('accountDropdown');
+    const button = document.querySelector('.page-header .dropdown button');
+    if (dropdown && button && !button.contains(e.target) && !dropdown.contains(e.target)) {
+      closeAccountDropdown();
+    }
+    const histDropdown = document.getElementById('histAccountDropdown');
+    const histButton = document.querySelector('#content .dropdown button');
+    if (histDropdown && histButton && !histButton.contains(e.target) && !histDropdown.contains(e.target)) {
+      const histArrow = document.getElementById('histDropdownArrow');
+      if (histDropdown) histDropdown.style.display = 'none';
+      if (histArrow) histArrow.style.transform = 'rotate(0deg)';
+    }
+  });
+});
+
+function render() {
+  try {
+    const route = getRoute();
+    const content = document.getElementById('content');
+    
+    document.querySelectorAll('.sidebar nav a').forEach(a => {
+      const href = a.getAttribute('href').replace('#', '') || '/';
+      a.classList.toggle('active', route === href);
+    });
+
+    if (route === '/history/overview') renderHistoryOverview(content);
+    else if (route === '/history/detail') renderHistoryDetail(content);
+    else if (route === '/entry') renderDataEntry(content);
+    else renderPortfolio(content);
+    
+    if (isPrivate()) applyPrivacyBlur();
+  } catch(e) {
+    const content = document.getElementById('content');
+    if (content) {
+      content.innerHTML = '<div class="card" style="background:#fef2f2;border:1px solid #fecaca;text-align:center;padding:40px"><h3 style="color:#dc2626;margin-bottom:12px">页面加载异常</h3><p style="color:#71717a;font-size:14px;margin-bottom:16px">请刷新页面重试，如问题持续请检查数据完整性</p><button class="btn btn-primary" onclick="location.reload()">刷新页面</button><pre style="margin-top:16px;font-size:11px;color:#991b1b;background:#fff;padding:8px;border-radius:6px;text-align:left;max-height:200px;overflow:auto">' + e.message + '\\n\\n' + e.stack + '</pre></div>';
+    }
+  }
+}
+
+// ====== 数据录入页面 ======
+function renderDataEntry(container) {
+  container.innerHTML = `
+    <div class="page-header"><h2>数据录入</h2></div>
+    <div class="card" style="text-align:center;padding:32px">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5" style="margin-bottom:16px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div class="card-title" style="margin-bottom:4px">当日上传图片解析数据</div>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">上传今天的持仓明细截图和豆/泽总资产截图，AI 自动解析并更新当日持仓数据</p>
+      <button class="btn" style="background:var(--gold);color:var(--primary-dark);font-weight:600;font-size:16px;padding:12px 32px" onclick="openUploadPanel()">📸 开始上传</button>
+    </div>
+    <div class="card" style="text-align:center;padding:32px">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5" style="margin-bottom:16px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div class="card-title" style="margin-bottom:4px">历史上传图片解析数据</div>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">补充历史日期的持仓截图，AI 解析后写入指定日期的历史快照</p>
+      <button class="btn" style="background:var(--primary);color:#fff;font-weight:600;font-size:16px;padding:12px 32px" onclick="openHistoryUploadPanel()">🕐 开始上传</button>
+    </div>
+    <div class="alert alert-info">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      <div>
+        <h4>使用说明</h4>
+        <p style="margin-top:4px">上传持仓详情截图（含代码/名称/金额/收益/收益率列的表格）+ 豆账户总资产截图 + 泽账户总资产截图，AI 会自动识别并提取数据。支持多选，一次上传多张图片。</p>
+        <p id="parsingModelLabel" style="margin-top:4px;font-size:12px;color:#64748b">解析使用 qwen-vl-max（百炼多模态），代理/直连双模式</p>
+      </div>
+    </div>
+  `;
+}
+
+// ====== 持仓统计页面 ======
+function renderPortfolio(container) {
+  const totalFunds = data.funds.reduce((s,f) => s+f.amount, 0);
+  const cashStock = data.stocks.find(s => s.code === '511880');
+  const cashStockAmount = cashStock ? cashStock.amount : 0;
+  const totalStockVal = data.stocks.filter(s => s.code !== '511880').reduce((s,st) => s+st.amount, 0);
+  const total = data.douTotal + data.zeTotal;
+  const totalHoldings = totalFunds + totalStockVal;
+  const totalCash = Math.max(0, total - totalHoldings - cashStockAmount);
+
+  const stocks = calcConcentration();
+
+  const typeLookup = {};
+  Object.entries(data.fundTypeMapping).forEach(([cat, codes]) => {
+    codes.forEach(code => { typeLookup[code] = cat; });
+  });
+
+  const mergeMap = { '163407': '510300' };
+  const merged = {};
+  function addItem(code, name, amount, profit, profitRate) {
+    const targetCode = mergeMap[code] || code;
+    if (!merged[targetCode]) merged[targetCode] = { code: targetCode, name: name, amount: 0, profit: 0, profitRate: 0, count: 0 };
+    const m = merged[targetCode];
+    m.amount += amount;
+    m.profit += profit;
+    m.profitRate += profitRate;
+    m.count += 1;
+  }
+  data.funds.forEach(f => {
+    const adj = getAdjusted(f.code, f.amount, f.profit, f.profitRate);
+    addItem(f.code, f.name, f.amount, adj.profit, adj.profitRate);
+  });
+  data.stocks.forEach(s => {
+    if (s.code === '511880') return;
+    const adj = getAdjusted(s.code, s.amount, s.profit, s.profitRate);
+    addItem(s.code, s.name, s.amount, adj.profit, adj.profitRate);
+  });
+  Object.values(merged).forEach(m => { m.profitRate = m.profitRate / m.count; });
+  const allItems = Object.values(merged).sort((a, b) => b.amount - a.amount);
+
+  // 按类型汇总
+  const typeSummary = {};
+  const typeMergeMap = { '沪深300': '300', '新能源车': '创业板+新能源' }; // 合并类型映射
+  data.funds.forEach(f => {
+    let t = f.type || '其他';
+    t = typeMergeMap[t] || t; // 如果有合并映射，使用合并后的类型
+    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
+    typeSummary[t].amount += f.amount;
+    typeSummary[t].count += 1;
+  });
+  data.stocks.forEach(s => {
+    if (s.code === '511880') return;
+    let t = typeLookup[s.code] || '个股';
+    t = typeMergeMap[t] || t; // 如果有合并映射，使用合并后的类型
+    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
+    typeSummary[t].amount += s.amount;
+    typeSummary[t].count += 1;
+  });
+  const typeRows = Object.entries(typeSummary).sort((a, b) => b[1].amount - a[1].amount);
+
+  container.innerHTML = `
+    <div class="page-header" style="margin-bottom:12px">
+      <div class="dropdown" style="position:relative;display:inline-block">
+        <button onclick="toggleAccountDropdown()" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;hover:bg-gray-100">
+          <h2 style="margin:0">持仓统计</h2>
+          <svg id="dropdownArrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div id="accountDropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);padding:8px;min-width:200px;z-index:100">
+          <div style="padding:6px 10px;border-bottom:1px solid var(--border)">
+            <div style="font-size:12px;color:var(--text-secondary)">合计资产</div>
+            <div class="mono" style="font-weight:700;color:var(--primary);font-size:16px">¥${(total/10000).toFixed(2)}万</div>
+          </div>
+          <div style="padding:6px 10px">
+            <div style="font-size:12px;color:var(--text-secondary)">豆的总资产</div>
+            <div class="mono" style="font-weight:600;font-size:14px">¥${(data.douTotal/10000).toFixed(2)}万</div>
+          </div>
+          <div style="padding:6px 10px">
+            <div style="font-size:12px;color:var(--text-secondary)">泽的总资产</div>
+            <div class="mono" style="font-weight:600;font-size:14px">¥${(data.zeTotal/10000).toFixed(2)}万</div>
+          </div>
+        </div>
+      </div>
+      <span class="mono" style="font-weight:700;color:var(--primary);font-size:18px">¥${(total/10000).toFixed(2)}万</span>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">按类型汇总</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${typeRows.map(([t, info]) => `<div style="flex:1;min-width:calc(50% - 6px);background:#f8faf8;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
+          <span class="tag tag-primary" style="flex-shrink:0">${t}</span>
+          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(info.amount/total*100)}</span>
+        </div>`).join('')}
+        <div style="flex:1;min-width:calc(50% - 6px);background:#f0faf4;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
+          <span class="tag" style="background:#f0faf4;color:var(--primary);flex-shrink:0">现金</span>
+          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(totalCash/total*100)}</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text-secondary)">
+        <span>合计 ${typeRows.length} 类 + 现金</span>
+        <span class="mono" style="font-weight:700;color:var(--text)">¥${(total/10000).toFixed(2)}万</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">持仓详情 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（共 ${allItems.length+1} 项）</span></div>
+      <div class="table-scroll"><table><thead><tr>
+        <th>名称</th><th class="text-right">持仓占比</th>
+        <th>代码</th>
+        <th class="text-right">持仓金额</th><th class="text-right">持仓收益</th><th class="text-right">收益率</th>
+        <th>类型</th>
+      </tr></thead><tbody>
+        ${allItems.map(item => {
+          const cat = typeLookup[item.code] || '个股';
+          const adjInfo = data.clearedAdjustments[item.code];
+          return `<tr>
+            <td><strong>${item.name}</strong></td>
+            <td class="text-right mono">${fmtRatio(item.amount/total*100)}</td>
+            <td class="mono">${item.code}</td>
+            <td class="text-right mono">¥${Math.round(item.amount).toLocaleString()}</td>
+            <td class="text-right mono ${item.profit>=0?'positive':'negative'}">¥${Math.round(item.profit).toLocaleString()}${adjInfo ? '<sup title="已清仓亏损已抵扣 ¥'+adjInfo.amount.toLocaleString()+'">!</sup>' : ''}</td>
+            <td class="text-right mono ${item.profitRate>=0?'positive':'negative'}">${item.profitRate>=0?'+':''}${Math.round(item.profitRate)}%</td>
+            <td><span class="tag tag-primary">${cat}</span></td>
+          </tr>`;
+        }).join('')}
+        <tr>
+          <td><strong>现金</strong></td>
+          <td class="text-right mono">${fmtRatio(totalCash/total*100)}</td>
+          <td class="mono" style="color:var(--text-secondary)">511880</td>
+          <td class="text-right mono">¥${Math.round(totalCash).toLocaleString()}</td>
+          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
+          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
+          <td><span class="tag" style="background:#f0faf4;color:var(--primary)">现金</span></td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr style="background:#f0faf4;font-weight:700">
+          <td colspan="2" class="mono">合计</td>
+          <td class="text-right mono">—</td>
+          <td class="text-right mono">¥${Math.round(total).toLocaleString()}</td>
+          <td class="text-right mono">—</td>
+          <td class="text-right mono">—</td>
+          <td class="text-right mono">—</td>
+        </tr>
+      </tfoot></table></div>
+    </div>
+
+    <div style="text-align:right;margin-bottom:8px">
+      <button class="btn btn-primary" onclick="toggleCalcLog()">🔍 查看详细计算过程</button>
+    </div>
+    <div id="calcLogPanel" style="display:none;margin-bottom:24px">
+      <div class="card" style="background:#f8fafc;font-family:monospace;font-size:12px;white-space:pre-wrap;line-height:1.6;max-height:600px;overflow:auto"></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:0">股票集中度排名</div>
+        <span style="font-size:13px;color:var(--text-secondary)">共 ${stocks.length} 只股票 &nbsp;|&nbsp; <span style="color:var(--text-secondary)">≥1% 的股票 ${stocks.filter(s => s.total >= 1).length} 只，占总资产 ${stocks.filter(s => s.total >= 1).reduce((sum, s) => sum + s.total, 0).toFixed(2)}%</span></span>
+      </div>
+      <div class="table-scroll"><table><thead><tr>
+        <th>排名</th><th>股票代码</th><th>股票名称</th>
+        <th class="text-right">总占比</th>
+        <th class="text-center">来源基金数</th><th>操作</th>
+      </tr></thead><tbody>
+        ${stocks.map((s, i) => {
+          return `<tr style="${s.total>=15?'background:#fef2f2':s.total>=10?'background:#fefce8':''}">
+            <td class="mono">${i+1}</td>
+            <td class="mono">${s.code}</td>
+            <td><strong>${s.name}</strong></td>
+            <td class="text-right mono" style="font-weight:600">${s.total.toFixed(2)}%</td>
+            <td class="text-center">${s.sources.length}</td>
+            <td><button class="expand-btn" onclick="toggleDetail('${s.code}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="arr-${s.code}"><path d="m6 9 6 6 6-6"/></svg>
+            </button></td>
+          </tr>
+          <tr id="detail-${s.code}" style="display:none">
+            <td colspan="6">
+              <div class="detail-content">
+                <strong style="font-size:13px;margin-bottom:8px;display:block">来源基金明细：</strong>
+                <table><thead><tr><th>基金代码</th><th>基金名称</th><th class="text-right">贡献占比</th></tr></thead><tbody>
+                  ${s.sources.map(src => `<tr><td class="mono">${src.fundCode}</td><td>${src.fundName}</td><td class="text-right mono">${src.ratio.toFixed(2)}%</td></tr>`).join('')}
+                </tbody></table>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
+    </div>
+
+    <div class="alert alert-info">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      <div>
+        <h4>分析说明</h4>
+        <p style="margin-top:4px">本页面汇总了您持有的所有基金中同一只股票的占比。通过跨基金合并计算，帮助您发现投资组合中是否存在股票集中度过高的风险。<br>
+        <strong>黄色预警：</strong>集中度 ≥ 10% | <strong style="color:#dc2626">红色预警：</strong>集中度 ≥ 15%</p>
+        <p style="margin-top:8px;font-size:12px;color:#64748b"><sup>*</sup> 已清仓亏损已在收益中扣除，收益率按调整后重新计算</p>
+      </div>
+    </div>
+  `;
+}
+
+// Expand/collapse detail
+function toggleDetail(code) {
+  const row = document.getElementById('detail-' + code);
+  const arrow = document.getElementById('arr-' + code);
+  if (!row) return;
+  const show = row.style.display !== 'table-row';
+  row.style.display = show ? 'table-row' : 'none';
+  if (arrow) arrow.style.transform = show ? 'rotate(180deg)' : '';
+}
+
+// Utility functions
+function toggleCalcLog() {
+  const panel = document.getElementById('calcLogPanel');
+  const content = panel.querySelector('.card');
+  if (panel.style.display === 'none') {
+    if (!content.textContent) content.textContent = window.__calcLog || '(正在计算...)';
+    panel.style.display = 'block';
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+// ====== 隐私模式 ======
+function togglePrivacy() {
+  const on = localStorage.getItem('portfolio_privacy') !== '1';
+  localStorage.setItem('portfolio_privacy', on ? '1' : '0');
+  applyPrivacy();
+}
+
+function applyPrivacy() {
+  const on = localStorage.getItem('portfolio_privacy') === '1';
+  const btn = document.getElementById('privacyToggle');
+  if (btn) {
+    btn.classList.toggle('on', on);
+    if (on) {
+      btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    } else {
+      btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+    }
+  }
+  document.body.classList.toggle('privacy-mode', on);
+  if (on) applyPrivacyBlur(); else removePrivacyBlur();
+}
+
+function applyPrivacyBlur() {
+  removePrivacyBlur();
+  const content = document.getElementById('content');
+  if (!content) return;
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  const processed = new Set();
+  let node;
+  while (node = walker.nextNode()) {
+    if (/¥\s*\d/.test(node.textContent)) {
+      const p = node.parentElement;
+      if (p && !processed.has(p)) {
+        p.classList.add('privacy-sensitive');
+        processed.add(p);
+      }
+    }
+  }
+  document.querySelectorAll('#content canvas').forEach(c => c.classList.add('privacy-sensitive'));
+  const panel = document.getElementById('calcLogPanel');
+  if (panel) panel.classList.add('privacy-sensitive');
+}
+
+function removePrivacyBlur() {
+  document.querySelectorAll('.privacy-sensitive').forEach(el => el.classList.remove('privacy-sensitive'));
+}
+
+function isPrivate() {
+  return localStorage.getItem('portfolio_privacy') === '1';
+}
+
+// ====== 侧边栏折叠 ======
+function toggleSidebar() {
+  const collapsed = localStorage.getItem('sidebar_collapsed') !== '1';
+  localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
+  applySidebarCollapse();
+}
+
+function applySidebarCollapse() {
+  const collapsed = localStorage.getItem('sidebar_collapsed') === '1';
+  document.querySelector('.sidebar').classList.toggle('collapsed', collapsed);
+}
+
+// ====== 图片管理 ======
+function getImageStore() {
+  try {
+    const store = localStorage.getItem('portfolio_images');
+    return store ? JSON.parse(store) : {};
+  } catch(e) {
+    return {};
+  }
+}
+
+function saveImageStore(store) {
+  localStorage.setItem('portfolio_images', JSON.stringify(store));
+}
+
+function getImagesForDate(dateStr) {
+  const store = getImageStore();
+  return store[dateStr] || [];
+}
+
+function saveImageForDate(dateStr, imageType, dataUrl, fileName) {
+  const store = getImageStore();
+  if (!store[dateStr]) store[dateStr] = [];
+  
+  // 查找并替换同类型的图片，或者添加新图片
+  const existingIndex = store[dateStr].findIndex(img => img.type === imageType);
+  const newImage = {
+    id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+    type: imageType,
+    dataUrl: dataUrl,
+    fileName: fileName,
+    uploadTime: new Date().toISOString(),
+    size: dataUrl.length
+  };
+  
+  if (existingIndex >= 0) {
+    store[dateStr][existingIndex] = newImage;
+  } else {
+    store[dateStr].push(newImage);
+  }
+  
+  saveImageStore(store);
+  return newImage;
+}
+
+function deleteImageForDate(dateStr, imageId) {
+  const store = getImageStore();
+  if (!store[dateStr]) return false;
+  
+  store[dateStr] = store[dateStr].filter(img => img.id !== imageId);
+  
+  if (store[dateStr].length === 0) {
+    delete store[dateStr];
+  }
+  
+  saveImageStore(store);
+  return true;
+}
+
+function exportImageAsFile(imageData) {
+  const byteString = atob(imageData.dataUrl.split(',')[1]);
+  const mimeString = imageData.dataUrl.split(',')[0].split(':')[1].split(';')[0];
+  const ab = new ArrayBuffer(byteString.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+  const blob = new Blob([ab], { type: mimeString });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = imageData.fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const IMAGE_TYPES = [
+  { id: 'portfolio', label: '持仓明细', description: '持仓详情截图' },
+  { id: 'dou', label: '豆总资产', description: '豆账户总资产截图' },
+  { id: 'ze', label: '泽总资产', description: '泽账户总资产截图' }
+];
+
+function renderImageManager(container) {
+  const today = new Date().toISOString().slice(0, 10);
+  const dates = Object.keys(getImageStore()).sort().reverse();
+  
+  container.innerHTML = `
+    <div class="page-header">
+      <h2>数据来源图片管理</h2>
+    </div>
+    
+    <div class="card">
+      <div class="card-title">日期选择</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <input type="date" id="imageDateSelect" value="${today}" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px" onchange="renderImageManagerView()">
+        <span style="color:var(--text-secondary);font-size:13px">共 ${dates.length} 天有图片数据</span>
+      </div>
+    </div>
+    
+    <div id="imageManagerView"></div>
+  `;
+  
+  renderImageManagerView();
+}
+
+function renderImageManagerView() {
+  const dateInput = document.getElementById('imageDateSelect');
+  const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
+  const images = getImagesForDate(dateStr);
+  const container = document.getElementById('imageManagerView');
+  
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>${dateStr} 的数据来源图片</span>
+        <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">${images.length} 张图片</span>
+      </div>
+      
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${IMAGE_TYPES.map(type => {
+          const existingImage = images.find(img => img.type === type.id);
+          return `
+            <div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:${existingImage ? '#fafafa' : '#fff'}">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div>
+                  <strong>${type.label}</strong>
+                  <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 0">${type.description}</p>
+                </div>
+                <div style="display:flex;gap:8px">
+                  ${existingImage ? `
+                    <button class="btn" style="padding:6px 12px;font-size:13px" onclick="showImagePreview('${existingImage.id}')">
+                      查看
+                    </button>
+                    <button class="btn" style="padding:6px 12px;font-size:13px" onclick="exportImage('${existingImage.id}')">
+                      导出
+                    </button>
+                    <button class="btn" style="padding:6px 12px;font-size:13px;background:#fef2f2;color:#dc2626;border-color:#fecaca" onclick="replaceImage('${type.id}', '${dateStr}')">
+                      替换
+                    </button>
+                    <button class="btn" style="padding:6px 12px;font-size:13px;background:#fef2f2;color:#dc2626;border-color:#fecaca" onclick="deleteImage('${existingImage.id}', '${dateStr}')">
+                      删除
+                    </button>
+                  ` : `
+                    <button class="btn btn-primary" style="padding:6px 12px;font-size:13px" onclick="uploadImage('${type.id}', '${dateStr}')">
+                      上传图片
+                    </button>
+                  `}
+                </div>
+              </div>
+              ${existingImage ? `
+                <div style="display:flex;gap:16px;align-items:center">
+                  <img src="${existingImage.dataUrl}" style="max-height:120px;border-radius:4px;border:1px solid var(--border)">
+                  <div style="flex:1;font-size:12px;color:var(--text-secondary)">
+                    <div><strong>文件名：</strong>${existingImage.fileName}</div>
+                    <div><strong>上传时间：</strong>${new Date(existingImage.uploadTime).toLocaleString('zh-CN')}</div>
+                    <div><strong>大小：</strong>${Math.round(existingImage.size / 1024)} KB</div>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function uploadImage(imageType, dateStr) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        saveImageForDate(dateStr, imageType, event.target.result, file.name);
+        renderImageManagerView();
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  input.click();
+}
+
+function replaceImage(imageType, dateStr) {
+  uploadImage(imageType, dateStr);
+}
+
+function deleteImage(imageId, dateStr) {
+  if (confirm('确定要删除这张图片吗？此操作不可恢复。')) {
+    deleteImageForDate(dateStr, imageId);
+    renderImageManagerView();
+  }
+}
+
+function showImagePreview(imageId) {
+  const dateInput = document.getElementById('imageDateSelect');
+  const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
+  const images = getImagesForDate(dateStr);
+  const image = images.find(img => img.id === imageId);
+  
+  if (!image) return;
+  
+  const overlay = document.createElement('div');
+  overlay.id = 'imagePreviewOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  
+  const img = document.createElement('img');
+  img.src = image.dataUrl;
+  img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain';
+  img.onclick = (e) => e.stopPropagation();
+  
+  overlay.appendChild(img);
+  document.body.appendChild(overlay);
+}
+
+function exportImage(imageId) {
+  const dateInput = document.getElementById('imageDateSelect');
+  const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
+  const images = getImagesForDate(dateStr);
+  const image = images.find(img => img.id === imageId);
+  
+  if (image) {
+    exportImageAsFile(image);
+  }
+}
+
+// ====== 历史记录（localStorage存储） ======
+function saveHistorySnapshot(dateStr) {
+  if (!dateStr) dateStr = new Date().toISOString().slice(0, 10);
+  let history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  const images = getImagesForDate(dateStr);
+  history[dateStr] = {
+    funds: JSON.parse(JSON.stringify(data.funds)),
+    stocks: JSON.parse(JSON.stringify(data.stocks)),
+    douTotal: data.douTotal,
+    zeTotal: data.zeTotal,
+    snapshotDate: dateStr,
+    images: images.map(img => ({
+      id: img.id,
+      type: img.type,
+      dataUrl: img.dataUrl,
+      fileName: img.fileName,
+      uploadTime: img.uploadTime,
+      size: img.size
+    }))
+  };
+  localStorage.setItem('portfolio_history', JSON.stringify(history));
+  const el = document.getElementById('sidebarFooter');
+  if (el) el.textContent = '数据更新日期: ' + dateStr;
+}
+
+// 初始化时保存历史快照（每次都覆盖当天数据）
+function initHistory() {
+  const today = new Date().toISOString().slice(0, 10);
+  
+  // 用预置初始快照播种历史数据（如果缺少任何初始快照日期，补充进去）
+  let history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  if (data.initialSnapshots) {
+    Object.keys(data.initialSnapshots).forEach(date => {
+      if (!history[date]) {
+        history[date] = data.initialSnapshots[date];
+      }
+    });
+    if (Object.keys(history).length > 0) {
+      localStorage.setItem('portfolio_history', JSON.stringify(history));
+    }
+  }
+  
+  // 若 localStorage 中没有 douTotal/zeTotal，从历史最近值带入
+  if (!localStorage.getItem('portfolio_douTotal') || !localStorage.getItem('portfolio_zeTotal')) {
+    const dates = Object.keys(history).sort().reverse();
+    if (dates.length > 0) {
+      const lastSnap = history[dates[0]];
+      if (lastSnap) {
+        if (!localStorage.getItem('portfolio_douTotal') && lastSnap.douTotal) {
+          data.douTotal = lastSnap.douTotal;
+          localStorage.setItem('portfolio_douTotal', lastSnap.douTotal);
+        }
+        if (!localStorage.getItem('portfolio_zeTotal') && lastSnap.zeTotal) {
+          data.zeTotal = lastSnap.zeTotal;
+          localStorage.setItem('portfolio_zeTotal', lastSnap.zeTotal);
+        }
+      }
+    }
+  }
+  
+  saveHistorySnapshot(today);
+  // 更新侧边栏日期显示
+  history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  const dates = Object.keys(history).sort();
+  if (dates.length > 0) {
+    const el = document.getElementById('sidebarFooter');
+    if (el) el.textContent = '数据更新日期: ' + dates[dates.length - 1];
+  }
+}
+
+function getHistoryDates() {
+  const history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  return Object.keys(history).sort().reverse();
+}
+
+function loadSnapshot(dateStr) {
+  const history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  return history[dateStr] || null;
+}
+
+function exportAllData() {
+  try {
+    const history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+    const exportData = {
+      version: 1,
+      exportTime: new Date().toISOString(),
+      currentData: {
+        douTotal: data.douTotal,
+        zeTotal: data.zeTotal,
+        funds: data.funds,
+        stocks: data.stocks,
+        clearedAdjustments: data.clearedAdjustments,
+      },
+      history: history,
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'portfolio_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert('导出失败：' + e.message + '\n请检查浏览器是否支持文件下载');
+  }
+}
+
+function validateDataIntegrity() {
+  const warnings = [];
+  if (!data.funds || !Array.isArray(data.funds) || data.funds.length === 0) {
+    warnings.push('场外基金数据为空');
+  }
+  if (!data.stocks || !Array.isArray(data.stocks) || data.stocks.length === 0) {
+    warnings.push('场内股票数据为空');
+  }
+  if (typeof data.douTotal !== 'number' || isNaN(data.douTotal) || data.douTotal <= 0) {
+    warnings.push('豆总资产数据异常：' + data.douTotal);
+  }
+  if (typeof data.zeTotal !== 'number' || isNaN(data.zeTotal) || data.zeTotal <= 0) {
+    warnings.push('泽总资产数据异常：' + data.zeTotal);
+  }
+  const has511880 = data.stocks.some(s => s.code === '511880');
+  if (!has511880) {
+    warnings.push('缺少银华日利(511880)持仓数据');
+  }
+  return warnings;
+}
+
+// ====== 历史概览页 ======
+function renderHistoryOverview(container) {
+  const dates = getHistoryDates();
+  if (dates.length === 0) {
+    container.innerHTML = '<div class="page-header"><h2>历史概览</h2></div><div class="card"><p style="color:var(--text-secondary);text-align:center;padding:40px 0">暂无历史数据</p></div>';
+    return;
+  }
+
+  const snapshots = dates.map(d => {
+    const snap = loadSnapshot(d);
+    const totalFunds = snap.funds.reduce((s,f) => s+f.amount, 0);
+    const cashStock = snap.stocks.find(s => s.code === '511880');
+    const cashStockAmt = cashStock ? cashStock.amount : 0;
+    const totalStocks = snap.stocks.filter(s => s.code !== '511880').reduce((s,st) => s+st.amount, 0);
+    const douTotal = snap.douTotal || 1278618.04;
+    const zeTotal = snap.zeTotal || 532240.37;
+    const total = douTotal + zeTotal;
+    const totalHoldings = totalFunds + totalStocks;
+    const totalCash = Math.max(0, total - totalHoldings - cashStockAmt);
+    const totalProfit = snap.funds.reduce((s,f) => s+f.profit, 0) + snap.stocks.reduce((s,st) => s+st.profit, 0);
+    return { date: d, totalFunds, totalStocks, cashStockAmt, totalCash, total, totalProfit };});
+
+  container.innerHTML = `
+    <div class="page-header"><h2>历史概览</h2></div>
+    <div class="card">
+      <div class="card-title">总资产趋势</div>
+      <div class="chart-container" style="height:300px">
+        <canvas id="trendChart" style="${snapshots.length < 2 ? 'display:none' : ''}"></canvas>
+        <div id="trendEmptyMsg" style="${snapshots.length >= 2 ? 'display:none' : 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:14px'}">${snapshots.length === 0 ? '暂无历史数据，保存快照后趋势图将自动生成' : '需要至少2天数据才能生成趋势图，明天再来查看'}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">历史汇总 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（共 ${snapshots.length} 条记录）</span></div>
+      <div class="table-scroll"><table><thead><tr>
+        <th>日期</th><th class="text-right">总资产</th><th class="text-right">现金</th><th class="text-right">总收益</th>
+      </tr></thead><tbody>
+        ${snapshots.map(s => `<tr>
+          <td class="mono">${s.date}</td>
+          <td class="text-right mono" style="font-weight:600">¥${(s.total/10000).toFixed(2)}万</td>
+          <td class="text-right mono">¥${fmt(s.totalCash)}</td>
+          <td class="text-right mono ${s.totalProfit>=0?'positive':'negative'}">¥${(s.totalProfit/10000).toFixed(2)}万</td>
+        </tr>`).join('')}
+      </tbody></table></div>
+    </div>
+  `;
+
+  // 画趋势图
+  if (snapshots.length >= 2) {
+    requestAnimationFrame(() => {
+    const canvas = document.getElementById('trendChart');
+    if (!canvas) return;
+    // 确保 canvas 可见才能取到正确尺寸
+    const origDisplay = canvas.style.display;
+    canvas.style.display = 'block';
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const w = rect.width, h = rect.height;
+    const pad = { t: 30, r: 20, b: 50, l: 80 };
+    const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
+
+    ctx.clearRect(0, 0, w, h);
+    const vals = snapshots.map(s => s.total);
+    const maxV = Math.max(...vals);
+    const minV = Math.min(...vals);
+    const range = maxV - minV || 1;
+
+    // 网格
+    ctx.strokeStyle = '#e4e4e7';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.t + ch - (ch * i / 4);
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(w - pad.r, y);
+      ctx.stroke();
+      ctx.fillStyle = '#71717a';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('¥' + ((minV + range * i / 4) / 10000).toFixed(1) + '万', pad.l - 8, y);
+    }
+
+    // 折线
+    const gap = cw / (snapshots.length - 1);
+    ctx.beginPath();
+    ctx.strokeStyle = '#8B2942';
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    snapshots.forEach((s, i) => {
+      const x = pad.l + i * gap;
+      const y = pad.t + ch - ((s.total - minV) / range) * ch;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // 填充渐变色
+    ctx.lineTo(pad.l + (snapshots.length - 1) * gap, pad.t + ch);
+    ctx.lineTo(pad.l, pad.t + ch);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
+    grad.addColorStop(0, 'rgba(139,41,66,0.15)');
+    grad.addColorStop(1, 'rgba(139,41,66,0.01)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 数据点 + 标签
+    snapshots.forEach((s, i) => {
+      const x = pad.l + i * gap;
+      const y = pad.t + ch - ((s.total - minV) / range) * ch;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#8B2942';
+      ctx.fill();
+      ctx.fillStyle = '#18181b';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(s.date.slice(5), x, pad.t + ch + 8);
+    });
+    });
+  }
+}
+
+// ====== 历史明细页 ======
+function renderHistoryDetail(container) {
+  const dates = getHistoryDates();
+  const selectedDate = dates[0] || '';
+
+  container.innerHTML = `
+    <div class="page-header"><h2>历史明细</h2></div>
+    <div class="card" style="padding:16px 24px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <label style="font-weight:500">选择日期：</label>
+        <select id="historyDateSelect" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px" onchange="renderHistoryDetailView()">
+          ${dates.length === 0 ? '<option value="">暂无数据</option>' : dates.map(d => `<option value="${d}" ${d===selectedDate?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="historyDetailView"></div>
+  `;
+
+  if (selectedDate) renderHistoryDetailView();
+}
+
+function renderHistoryDetailView() {
+  const select = document.getElementById('historyDateSelect');
+  if (!select) return;
+  const dateStr = select.value;
+  const snap = loadSnapshot(dateStr);
+  if (!snap) return;
+
+  const totalFunds = snap.funds.reduce((s,f) => s+f.amount, 0);
+  const cashStock = snap.stocks.find(s => s.code === '511880');
+  const cashStockAmt = cashStock ? cashStock.amount : 0;
+  const totalStocks = snap.stocks.filter(s => s.code !== '511880').reduce((s,st) => s+st.amount, 0);
+  const douTotal = snap.douTotal || 1278618.04;
+  const zeTotal = snap.zeTotal || 532240.37;
+  const total = douTotal + zeTotal;
+  const totalHoldings = totalFunds + totalStocks;
+  const totalCash = Math.max(0, total - totalHoldings - cashStockAmt);
+  const totalProfit = snap.funds.reduce((s,f) => s+f.profit, 0) + snap.stocks.reduce((s,st) => s+st.profit, 0);
+
+  const container = document.getElementById('historyDetailView');
+
+  const typeLookup = {};
+  Object.entries(data.fundTypeMapping).forEach(([cat, codes]) => {
+    codes.forEach(code => { typeLookup[code] = cat; });
+  });
+
+  const mergeMap = { '163407': '510300' };
+  const merged = {};
+  function addItem(code, name, amount, profit, profitRate) {
+    const targetCode = mergeMap[code] || code;
+    if (!merged[targetCode]) merged[targetCode] = { code: targetCode, name: name, amount: 0, profit: 0, profitRate: 0, count: 0 };
+    const m = merged[targetCode];
+    m.amount += amount;
+    m.profit += profit;
+    m.profitRate += profitRate;
+    m.count += 1;
+  }
+  snap.funds.forEach(f => {
+    const adj = getAdjusted(f.code, f.amount, f.profit, f.profitRate);
+    addItem(f.code, f.name, f.amount, adj.profit, adj.profitRate);
+  });
+  snap.stocks.forEach(s => {
+    if (s.code === '511880') return;
+    const adj = getAdjusted(s.code, s.amount, s.profit, s.profitRate);
+    addItem(s.code, s.name, s.amount, adj.profit, adj.profitRate);
+  });
+  Object.values(merged).forEach(m => { m.profitRate = m.profitRate / m.count; });
+  const allItems = Object.values(merged).sort((a, b) => b.amount - a.amount);
+
+  const typeMergeMap = { '沪深300': '300', '新能源车': '创业板+新能源' };
+  const typeSummary = {};
+  snap.funds.forEach(f => {
+    let t = f.type || '其他';
+    t = typeMergeMap[t] || t;
+    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
+    typeSummary[t].amount += f.amount;
+    typeSummary[t].count += 1;
+  });
+  snap.stocks.forEach(s => {
+    if (s.code === '511880') return;
+    let t = typeLookup[s.code] || '个股';
+    t = typeMergeMap[t] || t;
+    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
+    typeSummary[t].amount += s.amount;
+    typeSummary[t].count += 1;
+  });
+  const typeRows = Object.entries(typeSummary).sort((a, b) => b[1].amount - a[1].amount);
+
+  const fmap = {};
+  snap.funds.forEach(f => { if (!fmap[f.code]) fmap[f.code] = { name: f.name, amount: 0 }; fmap[f.code].amount += f.amount; });
+  snap.stocks.forEach(s => { if (!fmap[s.code]) fmap[s.code] = { name: s.name, amount: 0 }; fmap[s.code].amount += s.amount; });
+  const smap = {};
+  Object.entries(data.fundHoldings).forEach(([fc, holdings]) => {
+    const fund = fmap[fc]; if (!fund) return;
+    const w = fund.amount / (total || 1);
+    holdings.forEach(h => {
+      if (!smap[h.code]) smap[h.code] = { name: h.name, total: 0, sources: [] };
+      const contribution = h.ratio * w;
+      smap[h.code].total += contribution;
+      smap[h.code].sources.push({ fundCode: fc, fundName: fund.name, ratio: contribution });
+    });
+  });
+  const concStocks = Object.entries(smap).map(([code, info]) => ({ code, name: info.name, total: info.total, sources: info.sources }))
+    .sort((a, b) => b.total - a.total);
+
+  const historyImages = snap.images || [];
+
+  container.innerHTML = `
+    <div class="page-header" style="margin-bottom:12px">
+      <div class="dropdown" style="position:relative;display:inline-block">
+        <button onclick="toggleHistoryAccountDropdown()" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px">
+          <h2 style="margin:0">历史记录明细</h2>
+          <svg id="histDropdownArrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div id="histAccountDropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);padding:8px;min-width:200px;z-index:100">
+          <div style="padding:6px 10px;border-bottom:1px solid var(--border)">
+            <div style="font-size:12px;color:var(--text-secondary)">合计资产</div>
+            <div class="mono" style="font-weight:700;color:var(--primary);font-size:16px">¥${(total/10000).toFixed(2)}万</div>
+          </div>
+          <div style="padding:6px 10px">
+            <div style="font-size:12px;color:var(--text-secondary)">豆的总资产</div>
+            <div class="mono" style="font-weight:600;font-size:14px">¥${(douTotal/10000).toFixed(2)}万</div>
+          </div>
+          <div style="padding:6px 10px">
+            <div style="font-size:12px;color:var(--text-secondary)">泽的总资产</div>
+            <div class="mono" style="font-weight:600;font-size:14px">¥${(zeTotal/10000).toFixed(2)}万</div>
+          </div>
+        </div>
+      </div>
+      <span class="mono" style="font-weight:700;color:var(--primary);font-size:18px">¥${(total/10000).toFixed(2)}万</span>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px">按类型汇总</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${typeRows.map(([t, info]) => `<div style="flex:1;min-width:calc(50% - 6px);background:#f8faf8;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
+          <span class="tag tag-primary" style="flex-shrink:0">${t}</span>
+          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(info.amount/total*100)}</span>
+        </div>`).join('')}
+        <div style="flex:1;min-width:calc(50% - 6px);background:#f0faf4;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
+          <span class="tag" style="background:#f0faf4;color:var(--primary);flex-shrink:0">现金</span>
+          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(totalCash/total*100)}</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text-secondary)">
+        <span>合计 ${typeRows.length} 类 + 现金</span>
+        <span class="mono" style="font-weight:700;color:var(--text)">¥${(total/10000).toFixed(2)}万</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">数据来源图片 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（${dateStr}）</span></div>
+      ${historyImages.length > 0 ? `
+        <div style="display:flex;flex-wrap:wrap;gap:16px">
+          ${historyImages.map(img => {
+            const typeLabel = IMAGE_TYPES.find(t => t.id === img.type)?.label || img.type;
+            return `
+              <div style="flex:1;min-width:280px;border:1px solid var(--border);border-radius:8px;padding:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <strong>${typeLabel}</strong>
+                  <button class="btn" style="padding:4px 10px;font-size:12px" onclick="showHistoryImage('${dateStr}', '${img.id}')">查看大图</button>
+                </div>
+                <img src="${img.dataUrl}" style="width:100%;border-radius:4px;border:1px solid var(--border)">
+                <div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">
+                  ${img.fileName} • ${Math.round(img.size / 1024)} KB
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : `
+        <div style="text-align:center;color:var(--text-secondary);padding:32px 0">
+          该日期暂无图片数据
+        </div>
+      `}
+    </div>
+
+    <div class="card">
+      <div class="card-title">持仓详情 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（${dateStr}，共 ${allItems.length+1} 项）</span></div>
+      <div class="table-scroll"><table><thead><tr>
+        <th>名称</th><th class="text-right">持仓占比</th>
+        <th>代码</th>
+        <th class="text-right">持仓金额</th><th class="text-right">持仓收益</th><th class="text-right">收益率</th>
+        <th>类型</th>
+      </tr></thead><tbody>
+        ${allItems.map(item => {
+          let cat = item.type || typeLookup[item.code] || '个股';
+          cat = typeMergeMap[cat] || cat;
+          const adj = getAdjusted(item.code, item.amount, item.profit, item.profitRate);
+          const adjInfo = data.clearedAdjustments[item.code];
+          return `<tr>
+            <td><strong>${item.name}</strong></td>
+            <td class="text-right mono">${fmtRatio(item.amount/total*100)}</td>
+            <td class="mono">${item.code}</td>
+            <td class="text-right mono">¥${Math.round(item.amount).toLocaleString()}</td>
+            <td class="text-right mono ${adj.profit>=0?'positive':'negative'}">¥${Math.round(adj.profit).toLocaleString()}${adjInfo ? '<sup title="已清仓亏损已抵扣 ¥'+adjInfo.amount.toLocaleString()+'">!</sup>' : ''}</td>
+            <td class="text-right mono ${adj.profitRate>=0?'positive':'negative'}">${adj.profitRate>=0?'+':''}${Math.round(adj.profitRate)}%</td>
+            <td><span class="tag tag-primary">${cat}</span></td>
+          </tr>`;
+        }).join('')}
+        <tr>
+          <td><strong>现金</strong></td>
+          <td class="text-right mono">${fmtRatio(totalCash/total*100)}</td>
+          <td class="mono" style="color:var(--text-secondary)">511880</td>
+          <td class="text-right mono">¥${Math.round(totalCash).toLocaleString()}</td>
+          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
+          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
+          <td><span class="tag" style="background:#f0faf4;color:var(--primary)">现金</span></td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr style="background:#f0faf4;font-weight:700">
+          <td colspan="2" class="mono">合计</td>
+          <td class="text-right mono">—</td>
+          <td class="text-right mono">¥${Math.round(total).toLocaleString()}</td>
+          <td class="text-right mono">—</td>
+          <td class="text-right mono">—</td>
+          <td class="text-right mono">—</td>
+        </tr>
+      </tfoot></table></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:0">股票集中度排名</div>
+        <span style="font-size:13px;color:var(--text-secondary)">共 ${concStocks.length} 只股票 &nbsp;|&nbsp; <span style="color:var(--text-secondary)">≥1% 的股票 ${concStocks.filter(s => s.total >= 1).length} 只，占总资产 ${concStocks.filter(s => s.total >= 1).reduce((sum, s) => sum + s.total, 0).toFixed(2)}%</span></span>
+      </div>
+      <div class="table-scroll"><table><thead><tr>
+        <th>排名</th><th>股票代码</th><th>股票名称</th>
+        <th class="text-right">总占比</th>
+        <th class="text-center">来源基金数</th><th>操作</th>
+      </tr></thead><tbody>
+        ${concStocks.map((s, i) => {
+          return `<tr style="${s.total>=15?'background:#fef2f2':s.total>=10?'background:#fefce8':''}">
+            <td class="mono">${i+1}</td>
+            <td class="mono">${s.code}</td>
+            <td><strong>${s.name}</strong></td>
+            <td class="text-right mono" style="font-weight:600">${s.total.toFixed(2)}%</td>
+            <td class="text-center">${s.sources.length}</td>
+            <td><button class="expand-btn" onclick="toggleHistoryDetail('${s.code}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="hist-arr-${s.code}"><path d="m6 9 6 6 6-6"/></svg>
+            </button></td>
+          </tr>
+          <tr id="hist-detail-${s.code}" style="display:none">
+            <td colspan="6">
+              <div class="detail-content">
+                <strong style="font-size:13px;margin-bottom:8px;display:block">来源基金明细：</strong>
+                <table><thead><tr><th>基金代码</th><th>基金名称</th><th class="text-right">贡献占比</th></tr></thead><tbody>
+                  ${s.sources.map(src => `<tr><td class="mono">${src.fundCode}</td><td>${src.fundName}</td><td class="text-right mono">${src.ratio.toFixed(2)}%</td></tr>`).join('')}
+                </tbody></table>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
+    </div>
+
+    <div class="alert alert-info">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      <div>
+        <h4>分析说明</h4>
+        <p style="margin-top:4px">本页面汇总了您持有的所有基金中同一只股票的占比。通过跨基金合并计算，帮助您发现投资组合中是否存在股票集中度过高的风险。<br>
+        <strong>黄色预警：</strong>集中度 ≥ 10% | <strong style="color:#dc2626">红色预警：</strong>集中度 ≥ 15%</p>
+        <p style="margin-top:8px;font-size:12px;color:#64748b"><sup>*</sup> 已清仓亏损已在收益中扣除，收益率按调整后重新计算</p>
+      </div>
+    </div>
+  `;
+}
+
+function toggleHistoryDetail(code) {
+  const row = document.getElementById('hist-detail-' + code);
+  const arrow = document.getElementById('hist-arr-' + code);
+  if (!row) return;
+  const show = row.style.display !== 'table-row';
+  row.style.display = show ? 'table-row' : 'none';
+  if (arrow) arrow.style.transform = show ? 'rotate(180deg)' : '';
+}
+
+function toggleHistoryAccountDropdown() {
+  const dropdown = document.getElementById('histAccountDropdown');
+  const arrow = document.getElementById('histDropdownArrow');
+  if (dropdown && arrow) {
+    const isOpen = dropdown.style.display !== 'none';
+    dropdown.style.display = isOpen ? 'none' : 'block';
+    arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+  }
+}
+
+function showHistoryImage(dateStr, imageId) {
+  const snap = loadSnapshot(dateStr);
+  if (!snap || !snap.images) return;
+  const image = snap.images.find(img => img.id === imageId);
+  if (!image) return;
+  
+  const overlay = document.createElement('div');
+  overlay.id = 'imagePreviewOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  
+  const img = document.createElement('img');
+  img.src = image.dataUrl;
+  img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain';
+  img.onclick = (e) => e.stopPropagation();
+  
+  overlay.appendChild(img);
+  document.body.appendChild(overlay);
+}
+
+// image upload
+const uploadedImages = [];
+
+function openUploadPanel() {
+  document.getElementById('uploadOverlay').classList.add('show');
+  document.getElementById('uploadStatus').innerHTML = '';
+  uploadedImages.length = 0;
+  document.getElementById('uploadFileList').innerHTML = '';
+  document.getElementById('uploadPlaceholder').style.display = '';
+  document.getElementById('uploadFileInput').value = '';
+}
+
+function closeUploadPanel() {
+  document.getElementById('uploadOverlay').classList.remove('show');
+}
+
+function handleFilesSelected(input) {
+  if (!input.files || input.files.length === 0) return;
+  for (const file of input.files) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      uploadedImages.push({ dataUrl: ev.target.result, name: file.name });
+      renderUploadList();
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function renderUploadList() {
+  const container = document.getElementById('uploadFileList');
+  const placeholder = document.getElementById('uploadPlaceholder');
+  placeholder.style.display = uploadedImages.length > 0 ? 'none' : '';
+  container.innerHTML = uploadedImages.map((img, i) =>
+    '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f8faf8;border-radius:6px;margin-bottom:4px">' +
+      '<img src="' + img.dataUrl + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover;border:1px solid var(--border);flex-shrink:0">' +
+      '<span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + img.name + '</span>' +
+      '<button style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;padding:2px 4px" onclick="uploadedImages.splice(' + i + ',1);renderUploadList()">✕</button>' +
+    '</div>'
+  ).join('');
+}
+
+const historyUploadedImages = [];
+
+function openHistoryUploadPanel() {
+  document.getElementById('uploadOverlayHistory').classList.add('show');
+  document.getElementById('historyUploadStatus').innerHTML = '';
+  historyUploadedImages.length = 0;
+  document.getElementById('historyUploadFileList').innerHTML = '';
+  document.getElementById('historyUploadPlaceholder').style.display = '';
+  document.getElementById('historyUploadFileInput').value = '';
+  document.getElementById('historyUploadDate').value = '';
+}
+
+function closeHistoryUploadPanel() {
+  document.getElementById('uploadOverlayHistory').classList.remove('show');
+}
+
+function handleHistoryFilesSelected(input) {
+  if (!input.files || input.files.length === 0) return;
+  for (const file of input.files) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      historyUploadedImages.push({ dataUrl: ev.target.result, name: file.name });
+      renderHistoryUploadList();
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function renderHistoryUploadList() {
+  const container = document.getElementById('historyUploadFileList');
+  const placeholder = document.getElementById('historyUploadPlaceholder');
+  placeholder.style.display = historyUploadedImages.length > 0 ? 'none' : '';
+  container.innerHTML = historyUploadedImages.map((img, i) =>
+    '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f8faf8;border-radius:6px;margin-bottom:4px">' +
+      '<img src="' + img.dataUrl + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover;border:1px solid var(--border);flex-shrink:0">' +
+      '<span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + img.name + '</span>' +
+      '<button style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;padding:2px 4px" onclick="historyUploadedImages.splice(' + i + ',1);renderHistoryUploadList()">✕</button>' +
+    '</div>'
+  ).join('');
+}
+
+function validateParsedData(parsed) {
+  const errors = [];
+  const warnings = [];
+
+  if (!parsed.douTotal || isNaN(parsed.douTotal)) {
+    errors.push('未提取到豆账户总资产');
+  } else if (parsed.douTotal < 10000 || parsed.douTotal > 100000000) {
+    errors.push('豆账户总资产金额异常：' + parsed.douTotal);
+  }
+
+  if (!parsed.zeTotal || isNaN(parsed.zeTotal)) {
+    errors.push('未提取到泽账户总资产');
+  } else if (parsed.zeTotal < 10000 || parsed.zeTotal > 100000000) {
+    errors.push('泽账户总资产金额异常：' + parsed.zeTotal);
+  }
+
+  if (!parsed.funds || !Array.isArray(parsed.funds) || parsed.funds.length === 0) {
+    errors.push('未提取到场外基金持仓数据');
+  } else {
+    if (parsed.funds.length < 3) warnings.push('场外基金数量偏少（' + parsed.funds.length + '只），请确认截图完整性');
+    parsed.funds.forEach((f, i) => {
+      if (!f.code || !f.name) errors.push('场外基金第' + (i+1) + '条缺少代码或名称');
+      if (!f.amount || isNaN(f.amount)) errors.push('场外基金"' + (f.name||'未知') + '"缺少持仓金额');
+      if (typeof f.profit === 'undefined' || isNaN(f.profit)) errors.push('场外基金"' + (f.name||'未知') + '"缺少持仓收益');
+    });
+  }
+
+  if (!parsed.stocks || !Array.isArray(parsed.stocks) || parsed.stocks.length === 0) {
+    errors.push('未提取到场内持仓数据');
+  } else {
+    var has511880 = parsed.stocks.some(function(s) { return s.code === '511880'; });
+    if (!has511880) warnings.push('场内持仓中未找到银华日利(511880)，现金计算可能不准确');
+    parsed.stocks.forEach(function(s, i) {
+      if (!s.code || !s.name) errors.push('场内持仓第' + (i+1) + '条缺少代码或名称');
+      if (!s.amount || isNaN(s.amount)) errors.push('场内持仓"' + (s.name||'未知') + '"缺少持仓金额');
+    });
+    var totalHoldings = (parsed.funds||[]).reduce(function(s,f){return s+(f.amount||0);},0) + 
+      parsed.stocks.reduce(function(s,st){return s+(st.amount||0);},0);
+    var total = (parsed.douTotal||0) + (parsed.zeTotal||0);
+    if (total > 0 && totalHoldings > total * 1.3) {
+      errors.push('持仓总金额超出总资产30%以上，数据可能存在错误');
+    }
+  }
+
+  return { valid: errors.length === 0, errors: errors, warnings: warnings };
+}
+
+function saveHistorySnapshotForDate(dateStr, parsed, images) {
+  var history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  history[dateStr] = {
+    funds: parsed.funds || [],
+    stocks: parsed.stocks || [],
+    douTotal: parsed.douTotal || 0,
+    zeTotal: parsed.zeTotal || 0,
+    snapshotDate: dateStr,
+    images: images.map(function(img) { return { id: 'hist_' + Date.now() + '_' + Math.random().toString(36).substr(2,6), type: 'upload', dataUrl: img.dataUrl, fileName: img.name, uploadTime: new Date().toISOString(), size: img.dataUrl.length }; })
+  };
+  localStorage.setItem('portfolio_history', JSON.stringify(history));
+}
+
+async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
+  var statusEl = document.getElementById(statusElId);
+  var btnEl = document.getElementById(btnId);
+  statusEl.innerHTML = '<div class="parse-status loading">⏳ 正在调用 qwen-vl-max 解析 ' + uploadImages.length + ' 张图片，请稍候...</div>';
+  btnEl.disabled = true;
+
+  try {
+    var promptText = '你是一个严格的金融数据提取工具。请从下面的截图图片中提取持仓数据。\n\n需要提取的信息：\n1. 从持仓明细截图（表格形式，含代码/名称/金额/收益/收益率列）中提取所有基金和股票的持仓数据\n2. 从豆账户总资产截图中提取总资产金额（最大金额数字，通常格式为1,278,618.04）\n3. 从泽账户总资产截图中提取总资产金额\n\n请严格按以下JSON格式返回（不要任何其他文字）：\n{\n  "douTotal": 数字,\n  "zeTotal": 数字,\n  "funds": [{"code":"6位代码","name":"名称","type":"类型","amount":数字,"profit":数字,"profitRate":数字}],\n  "stocks": [{"code":"6位代码","name":"名称","shares":数字,"price":数字,"amount":数字,"profit":数字,"profitRate":数字}]\n}\n\n类型映射规则：代码162开头=医疗，501开头=新能源车，含300的代码=沪深300，161725=白酒，159915=创业板+新能源，513050=中概互联，510500/515000=信息+500，511880=现金。\n\n如果某类数据不存在，对应字段返回空数组或null。';
+
+    // 构建content块：文本+图片
+    var contentBlocks = [{ text: promptText }];
+    for (var i = 0; i < uploadImages.length; i++) {
+      contentBlocks.push({ image: uploadImages[i].dataUrl });
+    }
+
+    // 尝试代理优先，失败则直连DashScope
+    var response, json;
+
+    try {
+      response = await fetch('/api/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: contentBlocks })
+      });
+    } catch(proxyErr) {
+      response = null;
+    }
+
+    if (!response || !response.ok) {
+      // 代理不可用，直接调DashScope
+      if (!response) console.log('代理不可用，直连DashScope');
+      var apiBody = JSON.stringify({
+        model: 'qwen-vl-max',
+        input: { messages: [{ role: 'user', content: contentBlocks }] },
+        parameters: { result_format: 'message', max_tokens: 4096 }
+      });
+      response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer sk-60fea88b4446412e9db33ac6e5b14b64'
+        },
+        body: apiBody
+      });
+
+      if (!response.ok) {
+        var errText = '';
+        try { errText = await response.text(); } catch(ex) {}
+        throw new Error('DashScope API 请求失败 HTTP ' + response.status + ':\n' + errText.substring(0, 500));
+      }
+    }
+
+    json = await response.json();
+
+    // 处理代理返回的错误
+    if (json.error) {
+      throw new Error('API 错误: ' + json.error);
+    }
+
+    // 处理DashScope返回的错误码
+    if (json.code) {
+      throw new Error('DashScope错误 [' + json.code + ']: ' + (json.message || '未知错误').substring(0, 300));
+    }
+
+    var choices = json.output && json.output.choices;
+    if (!choices || !choices.length) {
+      throw new Error('API 返回格式异常，无 choices:\n' + JSON.stringify(json).substring(0, 300));
+    }
+
+    var assistantContent = choices[0].message.content;
+    var replyText = '';
+
+    if (Array.isArray(assistantContent)) {
+      for (var m = 0; m < assistantContent.length; m++) {
+        if (assistantContent[m].text) replyText += assistantContent[m].text;
+      }
+    } else if (typeof assistantContent === 'string') {
+      replyText = assistantContent;
+    } else {
+      throw new Error('无法解析模型返回的 content 格式:\n' + JSON.stringify(assistantContent).substring(0, 300));
+    }
+
+    if (!replyText) {
+      throw new Error('模型返回了空内容，请重试');
+    }
+    var jsonMatch = replyText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('解析失败：未找到有效JSON响应。\n响应内容:\n' + replyText.substring(0, 200));
+
+    var parsed = JSON.parse(jsonMatch[0]);
+    var validation = validateParsedData(parsed);
+
+    if (!validation.valid) {
+      var errHtml = '<div class="parse-status error"><strong>数据校验不通过，以下内容缺失或异常：</strong><br>';
+      validation.errors.forEach(function(e) { errHtml += '❌ ' + e + '<br>'; });
+      if (validation.warnings.length > 0) {
+        errHtml += '<br><strong>警告：</strong><br>';
+        validation.warnings.forEach(function(w) { errHtml += '⚠ ' + w + '<br>'; });
+      }
+      errHtml += '<br><small>请检查上传的截图是否完整，补充缺失的图片后重新上传</small></div>';
+      statusEl.innerHTML = errHtml;
+      btnEl.disabled = false;
+      return;
+    }
+
+    // 更新 data
+    if (parsed.douTotal && !isNaN(parsed.douTotal)) {
+      data.douTotal = parsed.douTotal;
+      localStorage.setItem('portfolio_douTotal', parsed.douTotal);
+    }
+    if (parsed.zeTotal && !isNaN(parsed.zeTotal)) {
+      data.zeTotal = parsed.zeTotal;
+      localStorage.setItem('portfolio_zeTotal', parsed.zeTotal);
+    }
+    if (parsed.funds && Array.isArray(parsed.funds) && parsed.funds.length > 0) {
+      data.funds = parsed.funds;
+    }
+    if (parsed.stocks && Array.isArray(parsed.stocks) && parsed.stocks.length > 0) {
+      data.stocks = parsed.stocks;
+    }
+
+    saveHistorySnapshotForDate(targetDate, parsed, uploadImages);
+
+    // 如果是当天，也保存到 localStorage 的日期缓存
+    var today = new Date().toISOString().slice(0, 10);
+    if (targetDate === today) {
+      saveHistorySnapshot(today);
+    }
+
+    var msg = '更新日期：' + targetDate + '<br>';
+    if (parsed.douTotal) msg += '豆总资产: ¥' + parsed.douTotal.toLocaleString() + '<br>';
+    if (parsed.zeTotal) msg += '泽总资产: ¥' + parsed.zeTotal.toLocaleString() + '<br>';
+    if (parsed.funds && parsed.funds.length > 0) msg += '提取到场外基金 ' + parsed.funds.length + ' 条<br>';
+    if (parsed.stocks && parsed.stocks.length > 0) msg += '提取到场内持仓 ' + parsed.stocks.length + ' 条<br>';
+    if (validation.warnings.length > 0) {
+      msg += '<br><small>⚠ ' + validation.warnings.join(' | ') + '</small>';
+    }
+
+    statusEl.innerHTML = '<div class="parse-status success">✅ 校验通过，数据已更新！<br>' + msg + '<br><small>页面即将刷新...</small></div>';
+
+    setTimeout(function() {
+      if (closeCb) closeCb();
+      uploadImages.length = 0;
+      render();
+    }, 1500);
+
+  } catch(e) {
+    statusEl.innerHTML = '<div class="parse-status error">❌ ' + e.message + '</div>';
+  } finally {
+    btnEl.disabled = false;
+  }
+}
+
+function startParsing() {
+  if (uploadedImages.length === 0) {
+    document.getElementById('uploadStatus').innerHTML = '<div class="parse-status error">请先上传至少一张截图</div>';
+    return;
+  }
+  doParsing(uploadedImages, 'uploadStatus', 'btnParse', new Date().toISOString().slice(0, 10), closeUploadPanel);
+}
+
+function startHistoryParsing() {
+  var dateEl = document.getElementById('historyUploadDate');
+  var targetDate = dateEl ? dateEl.value : '';
+  if (!targetDate) {
+    document.getElementById('historyUploadStatus').innerHTML = '<div class="parse-status error">请先选择指定的历史日期</div>';
+    return;
+  }
+  if (historyUploadedImages.length === 0) {
+    document.getElementById('historyUploadStatus').innerHTML = '<div class="parse-status error">请先上传至少一张截图</div>';
+    return;
+  }
+  doParsing(historyUploadedImages, 'historyUploadStatus', 'btnHistoryParse', targetDate, closeHistoryUploadPanel);
+}
+
+// Init
+function debounce(fn, ms) {
+  let timer;
+  return function() { clearTimeout(timer); timer = setTimeout(fn, ms); };
+}
+window.addEventListener('hashchange', debounce(render, 50));
+window.addEventListener('load', () => {
+  localStorage.setItem('portfolio_data_version', '1');
+  if (localStorage.getItem('portfolio_history_cleared_v2') !== '1') {
+    localStorage.removeItem('portfolio_history');
+    localStorage.setItem('portfolio_history_cleared_v2', '1');
+  }
+  initHistory();
+  localStorage.setItem('portfolio_privacy', '1');
+  applyPrivacy();
+  applySidebarCollapse();
+  const warnings = validateDataIntegrity();
+  if (warnings.length > 0) {
+    const content = document.getElementById('content');
+    content.innerHTML = '<div class="card" style="background:#fefce8;border:1px solid #fde68a;text-align:center;padding:40px"><h3 style="color:#92400e;margin-bottom:12px">⚠ 数据完整性警告</h3><ul style="text-align:left;color:#a16207;font-size:14px">' + warnings.map(w => '<li style="margin-bottom:6px">• ' + w + '</li>').join('') + '</ul><p style="margin-top:16px;color:#71717a;font-size:14px">请检查数据是否完整</p><button class="btn btn-primary" style="margin-top:12px" onclick="location.reload()">刷新页面</button></div>';
+    return;
+  }
+  closeAccountDropdown();
+  render();
+});
+window.addEventListener('resize', () => {
+  const route = getRoute();
+  if (route === '/' || route === '/history/overview' || route === '/entry') render();
+});
+</script>
+
+<div class="upload-overlay" id="uploadOverlay">
+  <div class="upload-dialog">
+    <div class="card-title" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+      <span>当日上传持仓截图解析数据</span>
+      <button class="expand-btn" onclick="closeUploadPanel()" title="关闭">✕</button>
+    </div>
+    <div class="upload-slot" id="uploadDropZone" onclick="document.getElementById('uploadFileInput').click()" style="margin-bottom:12px">
+      <span class="placeholder" id="uploadPlaceholder">点击或拖拽上传持仓截图（支持多选）</span>
+    </div>
+    <div id="uploadFileList" style="max-height:150px;overflow-y:auto;margin-bottom:8px"></div>
+    <input type="file" id="uploadFileInput" accept="image/*" multiple style="display:none" onchange="handleFilesSelected(this)">
+    <div id="uploadStatus"></div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeUploadPanel()">取消</button>
+      <button class="btn btn-upload" id="btnParse" onclick="startParsing()">开始解析</button>
+    </div>
+  </div>
+</div>
+
+<div class="upload-overlay" id="uploadOverlayHistory">
+  <div class="upload-dialog">
+    <div class="card-title" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+      <span>历史日期上传持仓截图解析数据</span>
+      <button class="expand-btn" onclick="closeHistoryUploadPanel()" title="关闭">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <label style="font-weight:500;white-space:nowrap">指定日期：</label>
+      <input type="date" id="historyUploadDate" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;flex:1;max-width:200px" value="">
+    </div>
+    <div class="upload-slot" id="historyUploadDropZone" onclick="document.getElementById('historyUploadFileInput').click()" style="margin-bottom:12px">
+      <span class="placeholder" id="historyUploadPlaceholder">点击或拖拽上传持仓截图（支持多选）</span>
+    </div>
+    <div id="historyUploadFileList" style="max-height:150px;overflow-y:auto;margin-bottom:8px"></div>
+    <input type="file" id="historyUploadFileInput" accept="image/*" multiple style="display:none" onchange="handleHistoryFilesSelected(this)">
+    <div id="historyUploadStatus"></div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeHistoryUploadPanel()">取消</button>
+      <button class="btn btn-upload" id="btnHistoryParse" onclick="startHistoryParsing()">开始解析</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
