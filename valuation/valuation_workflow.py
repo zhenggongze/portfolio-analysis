@@ -294,7 +294,9 @@ def generate_simple_report(results, date_str, detail_url=None):
     lines.append(f"数据来源：蛋卷基金（加权PE/PB）+ ETF.run（等权PE/PB）")
     lines.append("")
 
-    for r in results:
+    sorted_results = sorted(results, key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999)
+
+    for r in sorted_results:
         rating = r.get("rating", {})
         source_tag = "" if r.get("source") == "danjuan" else " ⚠️兜底数据"
         lines.append(
