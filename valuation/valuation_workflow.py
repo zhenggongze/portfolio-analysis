@@ -300,7 +300,7 @@ def generate_simple_report(results, date_str, detail_url=None):
         rating = r.get("rating", {})
         source_tag = "" if r.get("source") == "danjuan" else " ⚠️兜底数据"
         lines.append(
-            f"{rating['emoji']} **{r['name']}**（{r['code']}）{source_tag}"
+            f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
         )
         lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
         lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
