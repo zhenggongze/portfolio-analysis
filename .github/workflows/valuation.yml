@@ -1,0 +1,29 @@
+name: 指数估值日报推送
+
+on:
+  schedule:
+    - cron: '30 1 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  valuation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装依赖
+        run: pip install requests brotli
+      - name: 运行估值工作流
+        run: python valuation/valuation_workflow.py --push
+      - name: 上传HTML报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: valuation-report
+          path: valuation/reports/
+      - name: 上传日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: valuation-logs
+          path: valuation/logs/
