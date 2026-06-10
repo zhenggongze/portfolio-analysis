@@ -82,9 +82,10 @@ FALLBACK_DATA = {
     "H30533": {"pe": 16.79, "pe_pct": 2.72, "pb": 2.28, "pb_pct": 4.86},
 }
 
-# 近10年时间跨度（天数）
-TEN_YEARS_DAYS = 365 * 10
-ONE_POINT_FIVE_YEARS_DAYS = int(365 * 1.5)
+# 近10年时间跨度（毫秒）- 蛋卷API的ts是毫秒级时间戳
+MS_PER_DAY = 86400 * 1000
+TEN_YEARS_MS = 365 * 10 * MS_PER_DAY
+ONE_POINT_FIVE_YEARS_MS = int(365 * 1.5 * MS_PER_DAY)
 
 
 # ============================================================
@@ -156,12 +157,12 @@ def calc_percentile(history, current_value):
     return round(pct, 2)
 
 
-def filter_recent_years(history, years_days):
-    """过滤出近N年的数据"""
+def filter_recent_years(history, years_ms):
+    """过滤出近N年的数据 - ts为毫秒级时间戳"""
     if not history:
         return []
     latest_ts = max(item["ts"] for item in history)
-    cutoff_ts = latest_ts - years_days * 86400
+    cutoff_ts = latest_ts - years_ms
     return [item for item in history if item["ts"] >= cutoff_ts]
 
 
@@ -653,8 +654,8 @@ def process_index(config, logger):
 
     if pe_history and pb_history:
         # 过滤近10年数据
-        pe_10y = filter_recent_years(pe_history, TEN_YEARS_DAYS)
-        pb_10y = filter_recent_years(pb_history, TEN_YEARS_DAYS)
+        pe_10y = filter_recent_years(pe_history, TEN_YEARS_MS)
+        pb_10y = filter_recent_years(pb_history, TEN_YEARS_MS)
 
         if pe_10y and pb_10y:
             latest_pe = pe_10y[-1]["value"]
@@ -670,7 +671,7 @@ def process_index(config, logger):
 
             # NDX特有：近1.5年最低PE
             if code == "NDX":
-                pe_1_5y = filter_recent_years(pe_history, ONE_POINT_FIVE_YEARS_DAYS)
+                pe_1_5y = filter_recent_years(pe_history, ONE_POINT_FIVE_YEARS_MS)
                 if pe_1_5y:
                     min_item = min(pe_1_5y, key=lambda x: x["value"])
                     result["low_pe_1_5y"] = round(min_item["value"], 2)
