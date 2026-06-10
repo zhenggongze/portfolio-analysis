@@ -599,7 +599,7 @@ def send_pushdeer(message, logger):
     payload = {
         "pushkey": PUSHDEER_KEY,
         "text": message,
-        "type": "text",
+        "type": "markdown",
     }
     try:
         logger.info("PushDeer 推送中...")
