@@ -1,0 +1,19 @@
+{
+  "task": "指数估值日报",
+  "date": "20260610",
+  "timestamp": "2026-06-10T15:39:30.832976+08:00",
+  "success": true,
+  "total_indices": 10,
+  "fetched_count": 10,
+  "danjuan_count": 10,
+  "fallback_count": 0,
+  "error_count": 0,
+  "errors": null,
+  "summary": "共处理 10 个指数(蛋卷实时10个, 兜底0个), 错误 0 个",
+  "pushdeer": {
+    "enabled": true,
+    "success": true,
+    "response": "{'code': 0, 'content': {'result': ['{\"counts\":1,\"logs\":[],\"success\":\"ok\"}']}}"
+  },
+  "html_file": "reports/valuation_detail_20260610.html"
+}
