@@ -313,47 +313,25 @@ def calc_rating(pe_pct):
 # ============================================================
 
 def generate_simple_report(results, date_str, detail_url=None):
-    """生成简版Markdown报告"""
-    now_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
-
-    lines = []
-    lines.append(f"📊 指数估值日报 ({date_str})")
-    lines.append(f"更新时间：{now_str}")
-    lines.append(f"数据来源：蛋卷基金（加权PE/PB）+ ETF.run（等权PE/PB）")
-    lines.append("")
+    """生成简版推送报告 - 紧凑单行格式确保PushDeer送达"""
+    now_str = datetime.now(BEIJING_TZ).strftime("%m-%d %H:%M")
 
     sorted_results = sorted(results, key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999)
 
+    all_realtime = all(r.get("source") == "danjuan" for r in sorted_results)
+    realtime_flag = "全实时" if all_realtime else f"{sum(1 for r in sorted_results if r.get('source')=='danjuan')}/{len(sorted_results)}实时"
+
+    lines = []
+    lines.append(f"📊 估值日报 {date_str} {realtime_flag} | 更新{now_str}")
+
     for r in sorted_results:
         rating = r.get("rating", {})
-        source_tag = "" if r.get("source") == "danjuan" else " ⚠️兜底数据"
-        lines.append(
-            f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
-        )
-        lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
-        lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
-        if r.get("low_pe") is not None:
-            diff_str = f"（需跌{r['low_pe_diff']}%）" if r.get("low_pe_diff") is not None else ""
-            lines.append(f"  历史最低PE：{r['low_pe']}（{r['low_pe_date']}）{diff_str}")
-        if r.get("low_pb") is not None:
-            diff_str = f"（需跌{r['low_pb_diff']}%）" if r.get("low_pb_diff") is not None else ""
-            lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）{diff_str}")
-        lines.append(f"  估值评级：{rating['level']}")
-        lines.append("")
-
-    lines.append("---")
-    lines.append("评级说明：")
-    lines.append("🔴 >90% 极度高估 | 🟠 70%-90% 高估 | 🟡 30%-70% 合理 | 🟢 10%-30% 低估 | 🔵 <10% 极度低估")
-    lines.append("")
-    lines.append("⚠️ 数据说明：")
-    lines.append("- PE/PB为蛋卷基金加权数据，基于近10年周频数据计算百分位")
-    lines.append("- ETF.run提供等权PE/PB作为辅助参考，不参与主评级")
-    lines.append("- 历史最低PE/PB基于蛋卷基金全量历史数据")
-    lines.append("- T+1数据，仅供参考，不构成投资建议")
+        fb_tag = "⚠️" if r.get("source") != "danjuan" else ""
+        pb_str = f"PB{r['pb']}分位{r['pb_pct']}%" if r.get("pb") is not None else ""
+        lines.append(f"{rating['emoji']}{r['name']}{fb_tag} PE{r['pe']}分位{r['pe_pct']}% {pb_str}")
 
     if detail_url:
-        lines.append("")
-        lines.append(f"📎 详细版报告：{detail_url}")
+        lines.append(f"📎 {detail_url}")
 
     return "\n".join(lines)
 
