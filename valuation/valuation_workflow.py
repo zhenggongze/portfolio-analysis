@@ -69,23 +69,31 @@ INDEX_CONFIG = [
 
 # 静态兜底数据
 FALLBACK_DATA = {
-    "000300": {"pe": 12.50, "pe_pct": 45.20, "pb": 1.35, "pb_pct": 18.50},
-    "000905": {"pe": 23.80, "pe_pct": 35.60, "pb": 1.85, "pb_pct": 22.30},
-    "399006": {"pe": 35.20, "pe_pct": 28.40, "pb": 4.50, "pb_pct": 25.10},
-    "399989": {"pe": 42.50, "pe_pct": 55.30, "pb": 5.80, "pb_pct": 38.60},
-    "399997": {"pe": 28.60, "pe_pct": 62.10, "pb": 7.20, "pb_pct": 75.40},
-    "000993": {"pe": 45.30, "pe_pct": 48.70, "pb": 3.90, "pb_pct": 42.10},
-    "930997": {"pe": 32.10, "pe_pct": 40.50, "pb": 3.20, "pb_pct": 35.80},
-    "399975": {"pe": 22.40, "pe_pct": 38.20, "pb": 1.45, "pb_pct": 20.30},
+    "000300": {"pe": 12.50, "pe_pct": 45.20, "pb": 1.35, "pb_pct": 18.50,
+               "low_pe": 8.03, "low_pe_date": "2014-05-19", "low_pb": 1.04, "low_pb_date": "2014-05-19"},
+    "000905": {"pe": 23.80, "pe_pct": 35.60, "pb": 1.85, "pb_pct": 22.30,
+               "low_pe": 16.19, "low_pe_date": "2018-10-18", "low_pb": 1.31, "low_pb_date": "2018-10-18"},
+    "399006": {"pe": 35.20, "pe_pct": 28.40, "pb": 4.50, "pb_pct": 25.10,
+               "low_pe": 27.25, "low_pe_date": "2018-10-18", "low_pb": 2.78, "low_pb_date": "2018-10-18"},
+    "399989": {"pe": 42.50, "pe_pct": 55.30, "pb": 5.80, "pb_pct": 38.60,
+               "low_pe": 30.12, "low_pe_date": "2022-09-26", "low_pb": 3.65, "low_pb_date": "2022-09-26"},
+    "399997": {"pe": 28.60, "pe_pct": 62.10, "pb": 7.20, "pb_pct": 75.40,
+               "low_pe": 18.35, "low_pe_date": "2018-10-29", "low_pb": 3.82, "low_pb_date": "2018-10-29"},
+    "000993": {"pe": 45.30, "pe_pct": 48.70, "pb": 3.90, "pb_pct": 42.10,
+               "low_pe": 28.40, "low_pe_date": "2018-10-18", "low_pb": 2.30, "low_pb_date": "2018-10-18"},
+    "930997": {"pe": 32.10, "pe_pct": 40.50, "pb": 3.20, "pb_pct": 35.80,
+               "low_pe": 19.80, "low_pe_date": "2020-03-23", "low_pb": 1.95, "low_pb_date": "2020-03-23"},
+    "399975": {"pe": 22.40, "pe_pct": 38.20, "pb": 1.45, "pb_pct": 20.30,
+               "low_pe": 15.60, "low_pe_date": "2018-10-18", "low_pb": 1.02, "low_pb_date": "2018-10-18"},
     "NDX": {"pe": 34.39, "pe_pct": 68.36, "pb": 9.92, "pb_pct": 94.34,
-            "low_pe_1_5y": 28.36, "low_pe_1_5y_pct": 39.26},
-    "H30533": {"pe": 16.79, "pe_pct": 2.72, "pb": 2.28, "pb_pct": 4.86},
+            "low_pe": 15.28, "low_pe_date": "2008-11-20", "low_pb": 2.15, "low_pb_date": "2008-11-20"},
+    "H30533": {"pe": 16.79, "pe_pct": 2.72, "pb": 2.28, "pb_pct": 4.86,
+               "low_pe": 10.50, "low_pe_date": "2022-10-31", "low_pb": 1.42, "low_pb_date": "2022-10-31"},
 }
 
 # 近10年时间跨度（毫秒）- 蛋卷API的ts是毫秒级时间戳
 MS_PER_DAY = 86400 * 1000
 TEN_YEARS_MS = 365 * 10 * MS_PER_DAY
-ONE_POINT_FIVE_YEARS_MS = int(365 * 1.5 * MS_PER_DAY)
 
 
 # ============================================================
@@ -164,6 +172,16 @@ def filter_recent_years(history, years_ms):
     latest_ts = max(item["ts"] for item in history)
     cutoff_ts = latest_ts - years_ms
     return [item for item in history if item["ts"] >= cutoff_ts]
+
+
+def find_min_value_with_date(history):
+    """从全量历史数据中找到最低值及其对应日期 - ts为毫秒级时间戳"""
+    if not history:
+        return None, None
+    min_item = min(history, key=lambda x: x["value"])
+    min_value = round(min_item["value"], 2)
+    min_date = datetime.fromtimestamp(min_item["ts"] / 1000).strftime("%Y-%m-%d")
+    return min_value, min_date
 
 
 def fetch_etf_run_data(index_code, logger):
@@ -304,8 +322,10 @@ def generate_simple_report(results, date_str, detail_url=None):
         )
         lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
         lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
-        if r.get("low_pe_1_5y") is not None:
-            lines.append(f"  近1.5年最低PE：{r['low_pe_1_5y']}（分位 {r['low_pe_1_5y_pct']}%）")
+        if r.get("low_pe") is not None:
+            lines.append(f"  历史最低PE：{r['low_pe']}（{r['low_pe_date']}）")
+        if r.get("low_pb") is not None:
+            lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）")
         lines.append(f"  估值评级：{rating['level']}")
         lines.append("")
 
@@ -316,7 +336,7 @@ def generate_simple_report(results, date_str, detail_url=None):
     lines.append("⚠️ 数据说明：")
     lines.append("- PE/PB为蛋卷基金加权数据，基于近10年周频数据计算百分位")
     lines.append("- ETF.run提供等权PE/PB作为辅助参考，不参与主评级")
-    lines.append("- 纳斯达克100额外展示近1.5年最低PE（独立指标）")
+    lines.append("- 历史最低PE/PB基于蛋卷基金全量历史数据")
     lines.append("- T+1数据，仅供参考，不构成投资建议")
 
     if detail_url:
@@ -340,12 +360,20 @@ def generate_html_report(results, date_str):
         rating = r.get("rating", {})
         ew = r.get("etf_run") or {}
         low_pe_html = ""
-        if r.get("low_pe_1_5y") is not None:
+        if r.get("low_pe") is not None:
             low_pe_html = f"""
             <div class="extra-data">
-                <span class="extra-label">近1.5年最低PE</span>
-                <span class="extra-value">{r['low_pe_1_5y']}</span>
-                <span class="extra-pct">分位 {r['low_pe_1_5y_pct']}%</span>
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">{r['low_pe']}</span>
+                <span class="extra-pct">{r['low_pe_date']}</span>
+            </div>"""
+        low_pb_html = ""
+        if r.get("low_pb") is not None:
+            low_pb_html = f"""
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">{r['low_pb']}</span>
+                <span class="extra-pct">{r['low_pb_date']}</span>
             </div>"""
 
         ew_html = ""
@@ -392,6 +420,7 @@ def generate_html_report(results, date_str):
                 </div>
             </div>
             {low_pe_html}
+            {low_pb_html}
             {ew_html}
         </div>"""
 
@@ -575,7 +604,7 @@ body {{
     <div class="footer">
         <p>数据说明：PE/PB为蛋卷基金加权数据，基于近10年周频数据计算百分位</p>
         <p>ETF.run提供等权PE/PB作为辅助参考，不参与主评级计算</p>
-        <p>纳斯达克100额外展示近1.5年最低PE（独立指标）</p>
+        <p>历史最低PE/PB基于蛋卷基金全量历史数据</p>
         <p>T+1数据，仅供参考，不构成投资建议</p>
     </div>
 </div>
@@ -646,8 +675,10 @@ def process_index(config, logger):
         "rating": None,
         "source": "fallback",
         "etf_run": None,
-        "low_pe_1_5y": None,
-        "low_pe_1_5y_pct": None,
+        "low_pe": None,
+        "low_pe_date": None,
+        "low_pb": None,
+        "low_pb_date": None,
     }
 
     # 解析PE数据
@@ -671,15 +702,17 @@ def process_index(config, logger):
             result["pb_pct"] = pb_pct
             result["source"] = "danjuan"
 
-            # NDX特有：近1.5年最低PE
-            if code == "NDX":
-                pe_1_5y = filter_recent_years(pe_history, ONE_POINT_FIVE_YEARS_MS)
-                if pe_1_5y:
-                    min_item = min(pe_1_5y, key=lambda x: x["value"])
-                    result["low_pe_1_5y"] = round(min_item["value"], 2)
-                    low_pct = calc_percentile(pe_10y, min_item["value"])
-                    result["low_pe_1_5y_pct"] = low_pct
-                    logger.info(f"NDX 近1.5年最低PE: {result['low_pe_1_5y']} (分位 {low_pct}%)")
+            # 全历史最低PE/PB值及日期（所有指数）
+            low_pe, low_pe_date = find_min_value_with_date(pe_history)
+            low_pb, low_pb_date = find_min_value_with_date(pb_history)
+            result["low_pe"] = low_pe
+            result["low_pe_date"] = low_pe_date
+            result["low_pb"] = low_pb
+            result["low_pb_date"] = low_pb_date
+            if low_pe:
+                logger.info(f"{name} 历史最低PE: {low_pe}（{low_pe_date}）")
+            if low_pb:
+                logger.info(f"{name} 历史最低PB: {low_pb}（{low_pb_date}）")
         else:
             logger.warning(f"{name} 近10年数据不足，使用兜底数据")
     else:
@@ -692,9 +725,10 @@ def process_index(config, logger):
         result["pe_pct"] = fb.get("pe_pct")
         result["pb"] = fb.get("pb")
         result["pb_pct"] = fb.get("pb_pct")
-        if code == "NDX":
-            result["low_pe_1_5y"] = fb.get("low_pe_1_5y")
-            result["low_pe_1_5y_pct"] = fb.get("low_pe_1_5y_pct")
+        result["low_pe"] = fb.get("low_pe")
+        result["low_pe_date"] = fb.get("low_pe_date")
+        result["low_pb"] = fb.get("low_pb")
+        result["low_pb_date"] = fb.get("low_pb_date")
         result["source"] = "fallback"
 
     # A股指数获取ETF.run辅助数据
@@ -752,8 +786,10 @@ def run_workflow(push=False, detail_url=None, logger=None):
                 "rating": calc_rating(fb.get("pe_pct")),
                 "source": "fallback",
                 "etf_run": None,
-                "low_pe_1_5y": fb.get("low_pe_1_5y") if config["code"] == "NDX" else None,
-                "low_pe_1_5y_pct": fb.get("low_pe_1_5y_pct") if config["code"] == "NDX" else None,
+                "low_pe": fb.get("low_pe"),
+                "low_pe_date": fb.get("low_pe_date"),
+                "low_pb": fb.get("low_pb"),
+                "low_pb_date": fb.get("low_pb_date"),
             }
             results.append(fallback_result)
 
