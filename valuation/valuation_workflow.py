@@ -70,35 +70,35 @@ INDEX_CONFIG = [
 # 静态兜底数据
 FALLBACK_DATA = {
     "000300": {"pe": 12.50, "pe_pct": 45.20, "pb": 1.35, "pb_pct": 18.50,
-               "low_pe": 8.03, "low_pe_date": "2014-05-19", "low_pe_diff": 55.7,
-               "low_pb": 1.04, "low_pb_date": "2014-05-19", "low_pb_diff": 29.8},
+               "low_pe": 8.03, "low_pe_date": "2014-05-19", "low_pe_diff": 35.8,
+               "low_pb": 1.04, "low_pb_date": "2014-05-19", "low_pb_diff": 23.0},
     "000905": {"pe": 23.80, "pe_pct": 35.60, "pb": 1.85, "pb_pct": 22.30,
-               "low_pe": 16.19, "low_pe_date": "2018-10-18", "low_pe_diff": 47.0,
-               "low_pb": 1.31, "low_pb_date": "2018-10-18", "low_pb_diff": 41.2},
+               "low_pe": 16.19, "low_pe_date": "2018-10-18", "low_pe_diff": 32.0,
+               "low_pb": 1.31, "low_pb_date": "2018-10-18", "low_pb_diff": 29.2},
     "399006": {"pe": 35.20, "pe_pct": 28.40, "pb": 4.50, "pb_pct": 25.10,
-               "low_pe": 27.25, "low_pe_date": "2018-10-18", "low_pe_diff": 29.2,
-               "low_pb": 2.78, "low_pb_date": "2018-10-18", "low_pb_diff": 61.9},
+               "low_pe": 27.25, "low_pe_date": "2018-10-18", "low_pe_diff": 22.6,
+               "low_pb": 2.78, "low_pb_date": "2018-10-18", "low_pb_diff": 38.2},
     "399989": {"pe": 42.50, "pe_pct": 55.30, "pb": 5.80, "pb_pct": 38.60,
-               "low_pe": 30.12, "low_pe_date": "2022-09-26", "low_pe_diff": 41.1,
-               "low_pb": 3.65, "low_pb_date": "2022-09-26", "low_pb_diff": 58.9},
+               "low_pe": 30.12, "low_pe_date": "2022-09-26", "low_pe_diff": 29.1,
+               "low_pb": 3.65, "low_pb_date": "2022-09-26", "low_pb_diff": 37.1},
     "399997": {"pe": 28.60, "pe_pct": 62.10, "pb": 7.20, "pb_pct": 75.40,
-               "low_pe": 18.35, "low_pe_date": "2018-10-29", "low_pe_diff": 55.9,
-               "low_pb": 3.82, "low_pb_date": "2018-10-29", "low_pb_diff": 88.5},
+               "low_pe": 18.35, "low_pe_date": "2018-10-29", "low_pe_diff": 35.8,
+               "low_pb": 3.82, "low_pb_date": "2018-10-29", "low_pb_diff": 46.9},
     "000993": {"pe": 45.30, "pe_pct": 48.70, "pb": 3.90, "pb_pct": 42.10,
-               "low_pe": 28.40, "low_pe_date": "2018-10-18", "low_pe_diff": 59.5,
-               "low_pb": 2.30, "low_pb_date": "2018-10-18", "low_pb_diff": 69.6},
+               "low_pe": 28.40, "low_pe_date": "2018-10-18", "low_pe_diff": 37.3,
+               "low_pb": 2.30, "low_pb_date": "2018-10-18", "low_pb_diff": 41.0},
     "930997": {"pe": 32.10, "pe_pct": 40.50, "pb": 3.20, "pb_pct": 35.80,
-               "low_pe": 19.80, "low_pe_date": "2020-03-23", "low_pe_diff": 62.1,
-               "low_pb": 1.95, "low_pb_date": "2020-03-23", "low_pb_diff": 64.1},
+               "low_pe": 19.80, "low_pe_date": "2020-03-23", "low_pe_diff": 38.3,
+               "low_pb": 1.95, "low_pb_date": "2020-03-23", "low_pb_diff": 39.1},
     "399975": {"pe": 22.40, "pe_pct": 38.20, "pb": 1.45, "pb_pct": 20.30,
-               "low_pe": 15.60, "low_pe_date": "2018-10-18", "low_pe_diff": 43.6,
-               "low_pb": 1.02, "low_pb_date": "2018-10-18", "low_pb_diff": 42.2},
+               "low_pe": 15.60, "low_pe_date": "2018-10-18", "low_pe_diff": 30.4,
+               "low_pb": 1.02, "low_pb_date": "2018-10-18", "low_pb_diff": 29.7},
     "NDX": {"pe": 34.39, "pe_pct": 68.36, "pb": 9.92, "pb_pct": 94.34,
-            "low_pe": 15.28, "low_pe_date": "2008-11-20", "low_pe_diff": 125.1,
-            "low_pb": 2.15, "low_pb_date": "2008-11-20", "low_pb_diff": 361.4},
+            "low_pe": 15.28, "low_pe_date": "2008-11-20", "low_pe_diff": 55.6,
+            "low_pb": 2.15, "low_pb_date": "2008-11-20", "low_pb_diff": 78.3},
     "H30533": {"pe": 16.79, "pe_pct": 2.72, "pb": 2.28, "pb_pct": 4.86,
-               "low_pe": 10.50, "low_pe_date": "2022-10-31", "low_pe_diff": 59.9,
-               "low_pb": 1.42, "low_pb_date": "2022-10-31", "low_pb_diff": 60.6},
+               "low_pe": 10.50, "low_pe_date": "2022-10-31", "low_pe_diff": 37.5,
+               "low_pb": 1.42, "low_pb_date": "2022-10-31", "low_pb_diff": 37.7},
 }
 
 # 近10年时间跨度（毫秒）- 蛋卷API的ts是毫秒级时间戳
@@ -726,10 +726,10 @@ def process_index(config, logger):
             result["low_pb"] = low_pb
             result["low_pb_date"] = low_pb_date
             if low_pe and result["pe"]:
-                pe_diff = round((result["pe"] - low_pe) / low_pe * 100, 1)
+                pe_diff = round((result["pe"] - low_pe) / result["pe"] * 100, 1)
                 result["low_pe_diff"] = pe_diff
             if low_pb and result["pb"]:
-                pb_diff = round((result["pb"] - low_pb) / low_pb * 100, 1)
+                pb_diff = round((result["pb"] - low_pb) / result["pb"] * 100, 1)
                 result["low_pb_diff"] = pb_diff
             if low_pe:
                 logger.info(f"{name} 历史最低PE: {low_pe}（{low_pe_date}）, 距最低需跌{pe_diff}%")
