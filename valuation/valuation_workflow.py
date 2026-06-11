@@ -313,25 +313,47 @@ def calc_rating(pe_pct):
 # ============================================================
 
 def generate_simple_report(results, date_str, detail_url=None):
-    """生成简版推送报告 - 紧凑单行格式确保PushDeer送达"""
-    now_str = datetime.now(BEIJING_TZ).strftime("%m-%d %H:%M")
+    """生成简版Markdown报告"""
+    now_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
+
+    lines = []
+    lines.append(f"📊 指数估值日报 ({date_str})")
+    lines.append(f"更新时间：{now_str}")
+    lines.append(f"数据来源：蛋卷基金（加权PE/PB）+ ETF.run（等权PE/PB）")
+    lines.append("")
 
     sorted_results = sorted(results, key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999)
 
-    all_realtime = all(r.get("source") == "danjuan" for r in sorted_results)
-    realtime_flag = "全实时" if all_realtime else f"{sum(1 for r in sorted_results if r.get('source')=='danjuan')}/{len(sorted_results)}实时"
-
-    lines = []
-    lines.append(f"📊 估值日报 {date_str} {realtime_flag} | 更新{now_str}")
-
     for r in sorted_results:
         rating = r.get("rating", {})
-        fb_tag = "⚠️" if r.get("source") != "danjuan" else ""
-        pb_str = f"PB{r['pb']}分位{r['pb_pct']}%" if r.get("pb") is not None else ""
-        lines.append(f"{rating['emoji']}{r['name']}{fb_tag} PE{r['pe']}分位{r['pe_pct']}% {pb_str}")
+        source_tag = "" if r.get("source") == "danjuan" else " ⚠️兜底数据"
+        lines.append(
+            f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
+        )
+        lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
+        lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
+        if r.get("low_pe") is not None:
+            diff_str = f"（需跌{r['low_pe_diff']}%）" if r.get("low_pe_diff") is not None else ""
+            lines.append(f"  历史最低PE：{r['low_pe']}（{r['low_pe_date']}）{diff_str}")
+        if r.get("low_pb") is not None:
+            diff_str = f"（需跌{r['low_pb_diff']}%）" if r.get("low_pb_diff") is not None else ""
+            lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）{diff_str}")
+        lines.append(f"  估值评级：{rating['level']}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("评级说明：")
+    lines.append("🔴 >90% 极度高估 | 🟠 70%-90% 高估 | 🟡 30%-70% 合理 | 🟢 10%-30% 低估 | 🔵 <10% 极度低估")
+    lines.append("")
+    lines.append("⚠️ 数据说明：")
+    lines.append("- PE/PB为蛋卷基金加权数据，基于近10年周频数据计算百分位")
+    lines.append("- ETF.run提供等权PE/PB作为辅助参考，不参与主评级")
+    lines.append("- 历史最低PE/PB基于蛋卷基金全量历史数据")
+    lines.append("- T+1数据，仅供参考，不构成投资建议")
 
     if detail_url:
-        lines.append(f"📎 {detail_url}")
+        lines.append("")
+        lines.append(f"📎 详细版报告：{detail_url}")
 
     return "\n".join(lines)
 
@@ -616,25 +638,37 @@ body {{
 # ============================================================
 
 def send_pushdeer(message, logger):
-    """通过PushDeer推送消息"""
-    payload = {
-        "pushkey": PUSHDEER_KEY,
-        "text": message,
-        "type": "text",
-    }
-    try:
-        logger.info("PushDeer 推送中...")
-        resp = requests.post(PUSHDEER_URL, data=payload, timeout=15)
-        result = resp.json()
-        success = result.get("code") == 0
-        if success:
-            logger.info("PushDeer 推送成功")
-        else:
-            logger.error(f"PushDeer 推送失败: {result}")
-        return success, result
-    except Exception as e:
-        logger.error(f"PushDeer 推送异常: {e}")
-        return False, str(e)
+    """通过PushDeer推送消息 — 3次重试+唯一标识防去重"""
+    unique_id = datetime.now(BEIJING_TZ).strftime("%H%M%S%f")[:10]
+    tagged = f"{message}\n\n[{unique_id}]"
+
+    for attempt in range(1, 4):
+        payload = {
+            "pushkey": PUSHDEER_KEY,
+            "text": tagged,
+            "type": "text",
+        }
+        try:
+            logger.info(f"PushDeer 推送中... (第{attempt}次)")
+            resp = requests.post(PUSHDEER_URL, data=payload, timeout=15)
+            time.sleep(1)
+            result = resp.json()
+            code = result.get("code")
+            if code == 0:
+                logger.info(f"PushDeer 推送成功 (第{attempt}次)")
+                return True, result
+            else:
+                logger.warning(f"PushDeer 返回非0: {result}")
+        except Exception as e:
+            logger.warning(f"PushDeer 推送异常 (第{attempt}次): {e}")
+
+        if attempt < 3:
+            wait = [5, 15, 30][attempt - 1]
+            logger.info(f"等待{wait}秒后重试...")
+            time.sleep(wait)
+
+    logger.error("PushDeer 3次推送均失败")
+    return False, "3次重试均失败"
 
 
 # ============================================================
