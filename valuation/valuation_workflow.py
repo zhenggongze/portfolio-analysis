@@ -346,6 +346,69 @@ def fetch_xueqiu_pe_pb(index_code, logger):
     return result
 
 
+def fetch_baostock_pe_pb(index_code, logger):
+    """从Baostock获取指数PE/PB历史数据"""
+    result = {"pe_history": [], "pb_history": [], "error": None}
+
+    try:
+        import baostock as bs
+        lg = bs.login()
+        if lg.error_code != "0":
+            logger.warning(f"Baostock 登录失败: {lg.error_msg}")
+            return result
+
+        # Baostock指数代码格式: sz.980017, sh.000300
+        if index_code.startswith(("0", "5")):
+            bs_code = f"sh.{index_code}"
+        else:
+            bs_code = f"sz.{index_code}"
+
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            "date,peTTM,pbMRQ",
+            start_date="2015-01-01",
+            end_date="2030-12-31",
+            frequency="w",
+            adjustflag="3"
+        )
+
+        if rs.error_code != "0":
+            logger.warning(f"Baostock {index_code} 查询失败: {rs.error_msg}")
+            bs.logout()
+            return result
+
+        pe_history = []
+        pb_history = []
+        while rs.next():
+            row = rs.get_row_data()
+            date_str = row[0]
+            pe_str = row[1]
+            pb_str = row[2]
+            if date_str:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                ts = int(dt.timestamp() * 1000)
+                if pe_str and pe_str != "0" and pe_str != "":
+                    pe_history.append({"ts": ts, "value": float(pe_str)})
+                if pb_str and pb_str != "0" and pb_str != "":
+                    pb_history.append({"ts": ts, "value": float(pb_str)})
+
+        pe_history.sort(key=lambda x: x["ts"])
+        pb_history.sort(key=lambda x: x["ts"])
+        result["pe_history"] = pe_history
+        result["pb_history"] = pb_history
+        logger.info(f"Baostock {index_code} PE记录{len(pe_history)}条, PB记录{len(pb_history)}条")
+        bs.logout()
+
+    except ImportError:
+        logger.warning("baostock 未安装, 跳过")
+        result["error"] = "baostock未安装"
+    except Exception as e:
+        logger.warning(f"Baostock {index_code} 异常: {e}")
+        result["error"] = str(e)
+
+    return result
+
+
 # ============================================================
 # Node4：估值评级
 # ============================================================
@@ -771,16 +834,22 @@ def process_index(config, logger):
     pe_history = danjuan_data.get("pe_history", [])
     pb_history = danjuan_data.get("pb_history", [])
 
-    # 蛋卷无数据时，尝试雪球数据源
-    danjuan_source = "danjuan"
+    # 蛋卷无数据时，依次尝试baostock和雪球
+    alt_source = None
     if not pe_history or not pb_history:
-        logger.info(f"{name} 蛋卷无数据，尝试雪球数据源...")
-        xq_data = fetch_xueqiu_pe_pb(code, logger)
-        if xq_data.get("pe_history") and xq_data.get("pb_history"):
-            pe_history = xq_data["pe_history"]
-            pb_history = xq_data["pb_history"]
-            danjuan_source = "xueqiu"
-            logger.info(f"{name} 雪球数据获取成功")
+        alt_sources = [
+            ("baostock", fetch_baostock_pe_pb),
+            ("xueqiu", fetch_xueqiu_pe_pb),
+        ]
+        for src_name, src_func in alt_sources:
+            logger.info(f"{name} 蛋卷无数据，尝试{src_name}数据源...")
+            alt_data = src_func(code, logger)
+            if alt_data.get("pe_history") and alt_data.get("pb_history"):
+                pe_history = alt_data["pe_history"]
+                pb_history = alt_data["pb_history"]
+                alt_source = src_name
+                logger.info(f"{name} {src_name}数据获取成功")
+                break
 
     if pe_history and pb_history:
         # 过滤近10年数据
@@ -797,7 +866,7 @@ def process_index(config, logger):
             result["pe_pct"] = pe_pct
             result["pb"] = round(latest_pb, 2)
             result["pb_pct"] = pb_pct
-            result["source"] = danjuan_source
+            result["source"] = alt_source or "danjuan"
 
             # 全历史最低PE/PB值、日期及距当前涨跌幅（所有指数）
             low_pe, low_pe_date = find_min_value_with_date(pe_history)
