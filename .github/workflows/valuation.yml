@@ -2,8 +2,8 @@ name: 指数估值日报推送
 
 on:
   schedule:
-    # 北京时间 08:00（UTC 00:00），周一至周五
-    - cron: '0 0 * * 1-5'
+    # 北京时间 08:00（UTC 00:00），每日
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
