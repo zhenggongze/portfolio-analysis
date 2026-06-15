@@ -33,11 +33,10 @@ DANJUAN_CODE_MAP = {
     "000300": "SH000300",
     "000905": "SH000905",
     "399006": "SZ399006",
+    "399989": "SZ399989",
     "399997": "SZ399997",
     "159995": "OF159995",
     "515880": "OF515880",
-    "159688": "OF159688",
-    "512170": "OF512170",
     "NDX": "NDX",
     "H30533": "CSIH30533",
 }
@@ -47,19 +46,17 @@ ETF_RUN_URLS = {
     "000300": "https://www.etf.run/index/SH/000300",
     "000905": "https://www.etf.run/index/SH/000905",
     "399006": "https://www.etf.run/index/SZ/399006",
+    "399989": "https://www.etf.run/index/SZ/399989",
     "399997": "https://www.etf.run/index/SZ/399997",
     "159995": "https://www.etf.run/etf/SZ/159995",
     "515880": "https://www.etf.run/etf/SH/515880",
-    "159688": "https://www.etf.run/etf/SZ/159688",
-    "512170": "https://www.etf.run/etf/SH/512170",
 }
 
 # 指数配置列表
 INDEX_CONFIG = [
     {"code": "159995", "name": "芯片ETF", "category": "A股"},
     {"code": "515880", "name": "通信ETF", "category": "A股"},
-    {"code": "159688", "name": "恒生互联网ETF", "category": "A股"},
-    {"code": "512170", "name": "医疗ETF", "category": "A股"},
+    {"code": "399989", "name": "中证医疗", "category": "A股"},
     {"code": "000300", "name": "沪深300", "category": "A股"},
     {"code": "000905", "name": "中证500", "category": "A股"},
     {"code": "399006", "name": "创业板", "category": "A股"},
@@ -371,12 +368,10 @@ def fetch_akshare_pe_pb(index_code, logger):
 INDEX_KLINES_MARKET = {
     "159995": "0",
     "515880": "1",
-    "159688": "0",
-    "512170": "1",
 }
 
 # 点位分析的ETF代码（不走PE/PB，只走涨跌分析）
-KLINE_ONLY_CODES = {"159995", "515880", "159688", "512170"}
+KLINE_ONLY_CODES = {"159995", "515880"}
 
 def fetch_index_kline(index_code, logger):
     """从东方财富获取ETF日K线历史点位数据"""
