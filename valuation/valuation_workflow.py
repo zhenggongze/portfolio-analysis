@@ -33,11 +33,11 @@ DANJUAN_CODE_MAP = {
     "000300": "SH000300",
     "000905": "SH000905",
     "399006": "SZ399006",
-    "399989": "SZ399989",
     "399997": "SZ399997",
-    "000993": "SH000993",
     "159995": "OF159995",
     "515880": "OF515880",
+    "159688": "OF159688",
+    "512170": "OF512170",
     "NDX": "NDX",
     "H30533": "CSIH30533",
 }
@@ -47,23 +47,23 @@ ETF_RUN_URLS = {
     "000300": "https://www.etf.run/index/SH/000300",
     "000905": "https://www.etf.run/index/SH/000905",
     "399006": "https://www.etf.run/index/SZ/399006",
-    "399989": "https://www.etf.run/index/SZ/399989",
     "399997": "https://www.etf.run/index/SZ/399997",
-    "000993": "https://www.etf.run/index/SH/000993",
     "159995": "https://www.etf.run/etf/SZ/159995",
     "515880": "https://www.etf.run/etf/SH/515880",
+    "159688": "https://www.etf.run/etf/SZ/159688",
+    "512170": "https://www.etf.run/etf/SH/512170",
 }
 
 # 指数配置列表
 INDEX_CONFIG = [
+    {"code": "159995", "name": "芯片ETF", "category": "A股"},
+    {"code": "515880", "name": "通信ETF", "category": "A股"},
+    {"code": "159688", "name": "恒生互联网ETF", "category": "A股"},
+    {"code": "512170", "name": "医疗ETF", "category": "A股"},
     {"code": "000300", "name": "沪深300", "category": "A股"},
     {"code": "000905", "name": "中证500", "category": "A股"},
     {"code": "399006", "name": "创业板", "category": "A股"},
-    {"code": "399989", "name": "中证医疗", "category": "A股"},
     {"code": "399997", "name": "中证白酒", "category": "A股"},
-    {"code": "000993", "name": "中证全指信息技术", "category": "A股"},
-    {"code": "159995", "name": "芯片ETF", "category": "A股"},
-    {"code": "515880", "name": "通信ETF", "category": "A股"},
     {"code": "NDX", "name": "纳斯达克100", "category": "其他"},
     {"code": "H30533", "name": "中概互联50", "category": "其他"},
 ]
@@ -369,25 +369,24 @@ def fetch_akshare_pe_pb(index_code, logger):
 # ============================================================
 
 INDEX_KLINES_MARKET = {
-    "980017": "0",
-    "931160": "2",
     "159995": "0",
-    "515880": "2",
+    "515880": "1",
+    "159688": "0",
+    "512170": "1",
 }
 
 # 点位分析的ETF代码（不走PE/PB，只走涨跌分析）
-KLINE_ONLY_CODES = {"159995", "515880"}
+KLINE_ONLY_CODES = {"159995", "515880", "159688", "512170"}
 
 def fetch_index_kline(index_code, logger):
-    """从东方财富获取指数日K线历史点位数据"""
+    """从东方财富获取ETF日K线历史点位数据"""
     result = {"price_history": [], "error": None}
 
-    etf_map = {"159995": "980017", "515880": "931160"}
-    code = etf_map.get(index_code, index_code)
+    code = index_code
     market = INDEX_KLINES_MARKET.get(code)
 
     if not market:
-        result["error"] = f"未知指数市场代码: {code}"
+        result["error"] = f"未知ETF市场代码: {code}"
         return result
 
     try:
@@ -396,33 +395,21 @@ def fetch_index_kline(index_code, logger):
         data = resp.json()
         stock_data = data.get("data", {})
         klines = stock_data.get("klines", [])
-        if not klines:
-            logger.warning(f"K线 {code} 返回空数据，尝试实时报价API...")
-            quote_url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f43,f57,f58"
-            qresp = requests.get(quote_url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-            qdata = qresp.json()
-            qstock = qdata.get("data", {})
-            current_val = qstock.get("f43")
-            if current_val and float(current_val) > 0:
-                now_ts = int(time.time() * 1000)
-                history.append({"ts": now_ts, "value": float(current_val)})
-                result["price_history"] = history
-                logger.info(f"K线 {code} 实时报价: {current_val}")
-            else:
-                logger.warning(f"K线 {code} 实时报价也失败: {qresp.text[:200]}")
-        else:
-            history = []
-            for k in klines:
-                parts = k.split(",")
-                if len(parts) >= 5:
-                    date_str = parts[0]
-                    close_price = float(parts[2])
-                    dt = datetime.strptime(date_str, "%Y-%m-%d")
-                    ts = int(dt.timestamp() * 1000)
-                    history.append({"ts": ts, "value": close_price})
+        history = []
+        for k in klines:
+            parts = k.split(",")
+            if len(parts) >= 4:
+                date_str = parts[0]
+                close_price = float(parts[2])
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                ts = int(dt.timestamp() * 1000)
+                history.append({"ts": ts, "value": close_price})
+        if history:
             history.sort(key=lambda x: x["ts"])
             result["price_history"] = history
-            logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value'] if history else '无'})")
+            logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value']})")
+        else:
+            logger.warning(f"K线 {code} 返回空数据: {resp.text[:200]}")
     except Exception as e:
         logger.warning(f"K线 {code} 获取失败: {e}")
         result["error"] = str(e)
