@@ -12,7 +12,6 @@ import sys
 import time
 import random
 import argparse
-import pandas as pd
 from datetime import datetime, timezone, timedelta
 
 # ============================================================
@@ -353,40 +352,34 @@ def fetch_xueqiu_pe_pb(index_code, logger):
     return result
 
 
-def fetch_akshare_pe_pb(index_code, logger):
-    """从akshare获取指数PE/PB历史数据"""
+def fetch_eastmoney_pe_pb(index_code, logger):
+    """从东方财富API获取ETF/指数的PE/PB数据"""
     result = {"pe_history": [], "pb_history": [], "error": None}
 
     try:
-        import akshare as ak
+        em_code = f"0.{index_code}" if not index_code.startswith(("5", "6")) else f"1.{index_code}"
+        url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={em_code}&fields=f9,f20,f115,f162,f164,f167"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        stock = data.get("data", {})
+        pe = stock.get("f115") or stock.get("f20") or stock.get("f162") or stock.get("f9")
+        pb = stock.get("f167") or stock.get("f164")
 
-        for indicator, field_name in [("市盈率", "pe_history"), ("市净率", "pb_history")]:
-            df = ak.index_value_hist_funddb(
-                symbol=index_code,
-                indicator=indicator,
-                period="daily",
-                start_date="20150101",
-                end_date="20301231"
-            )
-            history = []
-            for _, row in df.iterrows():
-                date_val = row.get("日期")
-                val_col = "市盈率" if indicator == "市盈率" else "市净率"
-                val = row.get(val_col)
-                if date_val and pd.notna(date_val):
-                    dt = datetime.strptime(str(date_val)[:10], "%Y-%m-%d")
-                    ts = int(dt.timestamp() * 1000)
-                    if val and pd.notna(val) and float(val) > 0:
-                        history.append({"ts": ts, "value": float(val)})
-            history.sort(key=lambda x: x["ts"])
-            result[field_name] = history
-            logger.info(f"akshare {index_code} {indicator}: {len(history)} 条")
+        if pe and float(pe) > 0:
+            ts = int(time.time() * 1000)
+            result["pe_history"] = [{"ts": ts, "value": float(pe)}]
+        if pb and float(pb) > 0:
+            ts = int(time.time() * 1000)
+            result["pb_history"] = [{"ts": ts, "value": float(pb)}]
 
-    except ImportError:
-        logger.warning("akshare 未安装, 跳过")
-        result["error"] = "akshare未安装"
+        if pe or pb:
+            logger.info(f"东方财富 {index_code} PE={pe}, PB={pb}")
+            return result
+
+        logger.warning(f"东方财富 {index_code} PE/PB 均为空")
+
     except Exception as e:
-        logger.warning(f"akshare {index_code} 异常: {e}")
+        logger.warning(f"东方财富 {index_code} 异常: {e}")
         result["error"] = str(e)
 
     return result
@@ -430,7 +423,7 @@ def generate_simple_report(results, date_str, detail_url=None):
 
     for r in sorted_results:
         rating = r.get("rating", {})
-        source_tag = "" if r.get("source") in ("danjuan", "xueqiu", "akshare") else " ⚠️兜底数据"
+        source_tag = "" if r.get("source") in ("danjuan", "xueqiu", "eastmoney") else " ⚠️兜底数据"
         lines.append(
             f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
         )
@@ -821,7 +814,7 @@ def process_index(config, logger):
     alt_source = None
     if not pe_history or not pb_history:
         alt_sources = [
-            ("akshare", fetch_akshare_pe_pb),
+            ("eastmoney", fetch_eastmoney_pe_pb),
             ("xueqiu", fetch_xueqiu_pe_pb),
         ]
         for src_name, src_func in alt_sources:
@@ -969,9 +962,9 @@ def run_workflow(push=False, detail_url=None, logger=None):
 
     # 统计数据来源
     from_danjuan = sum(1 for r in results if r.get("source") == "danjuan")
-    from_akshare = sum(1 for r in results if r.get("source") == "akshare")
+    from_eastmoney = sum(1 for r in results if r.get("source") == "eastmoney")
     from_xueqiu = sum(1 for r in results if r.get("source") == "xueqiu")
-    from_realtime = from_danjuan + from_akshare + from_xueqiu
+    from_realtime = from_danjuan + from_eastmoney + from_xueqiu
     from_fallback = sum(1 for r in results if r.get("source") == "fallback")
 
     # 写入状态文件
@@ -983,12 +976,12 @@ def run_workflow(push=False, detail_url=None, logger=None):
         "total_indices": len(INDEX_CONFIG),
         "fetched_count": len(results),
         "danjuan_count": from_danjuan,
-        "akshare_count": from_akshare,
+        "eastmoney_count": from_eastmoney,
         "xueqiu_count": from_xueqiu,
         "fallback_count": from_fallback,
         "error_count": len(errors),
         "errors": errors if errors else None,
-        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, akshare{from_akshare}个, 雪球{from_xueqiu}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
+        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, 东方财富{from_eastmoney}个, 雪球{from_xueqiu}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
         "pushdeer": {
             "enabled": push,
             "success": push_status[0] if push_status else None,
