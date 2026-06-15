@@ -357,12 +357,19 @@ def fetch_akshare_pe_pb(index_code, logger):
     """从akshare获取指数PE/PB历史数据"""
     result = {"pe_history": [], "pb_history": [], "error": None}
 
+    # ETF代码映射到跟踪指数
+    etf_to_index = {
+        "159995": "980017",
+        "515880": "931160",
+    }
+    ak_code = etf_to_index.get(index_code, index_code)
+
     try:
         import akshare as ak
 
         for indicator, field_name in [("市盈率", "pe_history"), ("市净率", "pb_history")]:
             df = ak.index_value_hist_funddb(
-                symbol=index_code,
+                symbol=ak_code,
                 indicator=indicator,
                 period="daily",
                 start_date="20150101",
@@ -379,13 +386,13 @@ def fetch_akshare_pe_pb(index_code, logger):
                     history.append({"ts": ts, "value": float(val)})
             history.sort(key=lambda x: x["ts"])
             result[field_name] = history
-            logger.info(f"akshare {index_code} {indicator}: {len(history)} 条")
+            logger.info(f"akshare {ak_code} {indicator}: {len(history)} 条")
 
     except ImportError:
         logger.warning("akshare 未安装")
         result["error"] = "akshare未安装"
     except Exception as e:
-        logger.warning(f"akshare {index_code} 异常: {e}")
+        logger.warning(f"akshare {ak_code} 异常: {e}")
         result["error"] = str(e)
 
     return result
