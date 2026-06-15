@@ -289,6 +289,45 @@ def fetch_etf_run_data(index_code, logger):
 
 
 # ============================================================
+# Node3.5：雪球数据源（蛋卷不覆盖的指数用）
+# ============================================================
+
+def fetch_xueqiu_pe_pb(index_code, logger):
+    """从雪球获取指数PE/PB历史数据（蛋卷不支持时使用）"""
+    result = {"pe_history": [], "pb_history": [], "error": None}
+
+    try:
+        s = requests.Session()
+        s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        s.get("https://xueqiu.com/", timeout=10)
+
+        for data_type, indicator, field_name in [("pe", "pe_ttm", "pe_history"), ("pb", "pb", "pb_history")]:
+            url = f"https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=SZ{index_code}&begin=0&period=week&type=before&count=-10000&indicator={indicator}"
+            try:
+                resp = s.get(url, timeout=15)
+                data = resp.json()
+                items = data.get("data", {}).get("item", [])
+                history = []
+                for item in items:
+                    if isinstance(item, list) and len(item) >= 11:
+                        ts = item[0]
+                        val = item[10]
+                        if ts and val and float(val) > 0:
+                            history.append({"ts": ts, "value": float(val)})
+                history.sort(key=lambda x: x["ts"])
+                result[field_name] = history
+                logger.info(f"雪球 {index_code} {data_type.upper()} 获取: {len(history)} 条")
+            except Exception as e:
+                logger.warning(f"雪球 {index_code} {data_type.upper()} 子请求失败: {e}")
+
+    except Exception as e:
+        logger.warning(f"雪球 {index_code} 获取失败: {e}")
+        result["error"] = str(e)
+
+    return result
+
+
+# ============================================================
 # Node4：估值评级
 # ============================================================
 
@@ -326,7 +365,7 @@ def generate_simple_report(results, date_str, detail_url=None):
 
     for r in sorted_results:
         rating = r.get("rating", {})
-        source_tag = "" if r.get("source") == "danjuan" else " ⚠️兜底数据"
+        source_tag = "" if r.get("source") in ("danjuan", "xueqiu") else " ⚠️兜底数据"
         lines.append(
             f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
         )
@@ -713,6 +752,17 @@ def process_index(config, logger):
     pe_history = danjuan_data.get("pe_history", [])
     pb_history = danjuan_data.get("pb_history", [])
 
+    # 蛋卷无数据时，尝试雪球数据源
+    danjuan_source = "danjuan"
+    if not pe_history or not pb_history:
+        logger.info(f"{name} 蛋卷无数据，尝试雪球数据源...")
+        xq_data = fetch_xueqiu_pe_pb(code, logger)
+        if xq_data.get("pe_history") and xq_data.get("pb_history"):
+            pe_history = xq_data["pe_history"]
+            pb_history = xq_data["pb_history"]
+            danjuan_source = "xueqiu"
+            logger.info(f"{name} 雪球数据获取成功")
+
     if pe_history and pb_history:
         # 过滤近10年数据
         pe_10y = filter_recent_years(pe_history, TEN_YEARS_MS)
@@ -728,7 +778,7 @@ def process_index(config, logger):
             result["pe_pct"] = pe_pct
             result["pb"] = round(latest_pb, 2)
             result["pb_pct"] = pb_pct
-            result["source"] = "danjuan"
+            result["source"] = danjuan_source
 
             # 全历史最低PE/PB值、日期及距当前涨跌幅（所有指数）
             low_pe, low_pe_date = find_min_value_with_date(pe_history)
@@ -848,6 +898,8 @@ def run_workflow(push=False, detail_url=None, logger=None):
 
     # 统计数据来源
     from_danjuan = sum(1 for r in results if r.get("source") == "danjuan")
+    from_xueqiu = sum(1 for r in results if r.get("source") == "xueqiu")
+    from_realtime = from_danjuan + from_xueqiu
     from_fallback = sum(1 for r in results if r.get("source") == "fallback")
 
     # 写入状态文件
@@ -859,10 +911,11 @@ def run_workflow(push=False, detail_url=None, logger=None):
         "total_indices": len(INDEX_CONFIG),
         "fetched_count": len(results),
         "danjuan_count": from_danjuan,
+        "xueqiu_count": from_xueqiu,
         "fallback_count": from_fallback,
         "error_count": len(errors),
         "errors": errors if errors else None,
-        "summary": f"共处理 {len(results)} 个指数(蛋卷实时{from_danjuan}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
+        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, 雪球{from_xueqiu}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
         "pushdeer": {
             "enabled": push,
             "success": push_status[0] if push_status else None,
