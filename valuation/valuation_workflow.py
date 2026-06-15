@@ -68,40 +68,6 @@ INDEX_CONFIG = [
     {"code": "H30533", "name": "中概互联50", "category": "其他"},
 ]
 
-# 静态兜底数据
-FALLBACK_DATA = {
-    "000300": {"pe": 12.50, "pe_pct": 45.20, "pb": 1.35, "pb_pct": 18.50,
-               "low_pe": 8.03, "low_pe_date": "2014-05-19", "low_pe_diff": 35.8,
-               "low_pb": 1.04, "low_pb_date": "2014-05-19", "low_pb_diff": 23.0},
-    "000905": {"pe": 23.80, "pe_pct": 35.60, "pb": 1.85, "pb_pct": 22.30,
-               "low_pe": 16.19, "low_pe_date": "2018-10-18", "low_pe_diff": 32.0,
-               "low_pb": 1.31, "low_pb_date": "2018-10-18", "low_pb_diff": 29.2},
-    "399006": {"pe": 35.20, "pe_pct": 28.40, "pb": 4.50, "pb_pct": 25.10,
-               "low_pe": 27.25, "low_pe_date": "2018-10-18", "low_pe_diff": 22.6,
-               "low_pb": 2.78, "low_pb_date": "2018-10-18", "low_pb_diff": 38.2},
-    "399989": {"pe": 42.50, "pe_pct": 55.30, "pb": 5.80, "pb_pct": 38.60,
-               "low_pe": 30.12, "low_pe_date": "2022-09-26", "low_pe_diff": 29.1,
-               "low_pb": 3.65, "low_pb_date": "2022-09-26", "low_pb_diff": 37.1},
-    "399997": {"pe": 28.60, "pe_pct": 62.10, "pb": 7.20, "pb_pct": 75.40,
-               "low_pe": 18.35, "low_pe_date": "2018-10-29", "low_pe_diff": 35.8,
-               "low_pb": 3.82, "low_pb_date": "2018-10-29", "low_pb_diff": 46.9},
-    "000993": {"pe": 45.30, "pe_pct": 48.70, "pb": 3.90, "pb_pct": 42.10,
-               "low_pe": 28.40, "low_pe_date": "2018-10-18", "low_pe_diff": 37.3,
-               "low_pb": 2.30, "low_pb_date": "2018-10-18", "low_pb_diff": 41.0},
-    "159995": {"pe": 75.50, "pe_pct": 65.30, "pb": 5.20, "pb_pct": 60.50,
-               "low_pe": 38.20, "low_pe_date": "2022-04-26", "low_pe_diff": 49.4,
-               "low_pb": 3.20, "low_pb_date": "2022-04-26", "low_pb_diff": 38.5},
-    "515880": {"pe": 42.60, "pe_pct": 58.80, "pb": 3.80, "pb_pct": 55.30,
-               "low_pe": 25.10, "low_pe_date": "2018-10-18", "low_pe_diff": 41.1,
-               "low_pb": 2.30, "low_pb_date": "2018-10-18", "low_pb_diff": 39.5},
-    "NDX": {"pe": 34.39, "pe_pct": 68.36, "pb": 9.92, "pb_pct": 94.34,
-            "low_pe": 15.28, "low_pe_date": "2008-11-20", "low_pe_diff": 55.6,
-            "low_pb": 2.15, "low_pb_date": "2008-11-20", "low_pb_diff": 78.3},
-    "H30533": {"pe": 16.79, "pe_pct": 2.72, "pb": 2.28, "pb_pct": 4.86,
-               "low_pe": 10.50, "low_pe_date": "2022-10-31", "low_pe_diff": 37.5,
-               "low_pb": 1.42, "low_pb_date": "2022-10-31", "low_pb_diff": 37.7},
-}
-
 # 近10年时间跨度（毫秒）- 蛋卷API的ts是毫秒级时间戳
 MS_PER_DAY = 86400 * 1000
 TEN_YEARS_MS = 365 * 10 * MS_PER_DAY
@@ -409,11 +375,13 @@ INDEX_KLINES_MARKET = {
     "515880": "2",
 }
 
+# 点位分析的ETF代码（不走PE/PB，只走涨跌分析）
+KLINE_ONLY_CODES = {"159995", "515880"}
+
 def fetch_index_kline(index_code, logger):
     """从东方财富获取指数日K线历史点位数据"""
     result = {"price_history": [], "error": None}
 
-    # ETF代码映射到跟踪指数
     etf_map = {"159995": "980017", "515880": "931160"}
     code = etf_map.get(index_code, index_code)
     market = INDEX_KLINES_MARKET.get(code)
@@ -480,20 +448,32 @@ def generate_simple_report(results, date_str, detail_url=None):
     lines.append(f"数据来源：蛋卷基金（加权PE/PB）+ ETF.run（等权PE/PB）")
     lines.append("")
 
-    sorted_results = sorted(results, key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999)
+    # 点位分析（ETF）放最前，其余按PE百分位排序
+    kline_results = [r for r in results if r.get("source") == "kline" and r.get("code") in KLINE_ONLY_CODES]
+    pe_results = sorted(
+        [r for r in results if not (r.get("source") == "kline" and r.get("code") in KLINE_ONLY_CODES)],
+        key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999
+    )
 
-    for r in sorted_results:
-        rating = r.get("rating", {})
-        is_kline = r.get("source") == "kline"
-        source_tag = "" if r.get("source") in ("danjuan", "xueqiu", "akshare", "kline") else " ⚠️兜底数据"
-        pe_label = "点位" if is_kline else "PE"
-        lines.append(
-            f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
-        )
-        lines.append(f"  {pe_label}：{r['pe']}（分位 {r['pe_pct']}%）")
+    for r in kline_results + pe_results:
+        is_kline = r.get("source") == "kline" and r.get("code") in KLINE_ONLY_CODES
         if is_kline:
-            lines.append(f"  历史最低点位：{r['low_pe']}（{r['low_pe_date']}）（需跌{r['low_pe_diff']}%）")
+            low_pct = r.get("low_pe_diff")
+            high_pct = r.get("high_pe_diff")
+            low_str = f"(+{low_pct}%)" if low_pct and low_pct >= 0 else f"({low_pct}%)" if low_pct else ""
+            high_str = f"({high_pct}%)" if high_pct else ""
+            lines.append(
+                f"📈 {r['name']}（{r['code']}）"
+            )
+            lines.append(f"  当前点位：{r['pe']}")
+            lines.append(f"  最低点位：{r['low_pe']}（{r['low_pe_date']}）距最低涨幅{low_str}")
+            lines.append(f"  最高点位：{r['high_pe']}（{r['high_pe_date']}）距最高跌幅{high_str}")
         else:
+            rating = r.get("rating", {})
+            lines.append(
+                f"{rating['emoji']} {r['name']}（{r['code']}）"
+            )
+            lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
             lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
             if r.get("low_pe") is not None:
                 diff_str = f"（需跌{r['low_pe_diff']}%）" if r.get("low_pe_diff") is not None else ""
@@ -501,7 +481,7 @@ def generate_simple_report(results, date_str, detail_url=None):
             if r.get("low_pb") is not None:
                 diff_str = f"（需跌{r['low_pb_diff']}%）" if r.get("low_pb_diff") is not None else ""
                 lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）{diff_str}")
-        lines.append(f"  估值评级：{rating['level']}")
+            lines.append(f"  估值评级：{rating['level']}")
         lines.append("")
 
     lines.append("---")
@@ -525,15 +505,60 @@ def generate_html_report(results, date_str):
     """生成详细版HTML报告"""
     os.makedirs(REPORTS_DIR, exist_ok=True)
 
-    # 按PE百分位从小到大排序
-    sorted_results = sorted(results, key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999)
+    # 点位分析（ETF）放最前，其余按PE百分位排序
+    kline_results = [r for r in results if r.get("source") == "kline" and r.get("code") in KLINE_ONLY_CODES]
+    pe_results = sorted(
+        [r for r in results if not (r.get("source") == "kline" and r.get("code") in KLINE_ONLY_CODES)],
+        key=lambda x: x.get("pe_pct") if x.get("pe_pct") is not None else 999
+    )
 
     now_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
     cards_html = ""
-    for r in sorted_results:
+    for r in kline_results + pe_results:
+        is_kline_card = r.get("source") == "kline" and r.get("code") in KLINE_ONLY_CODES
         rating = r.get("rating", {})
         ew = r.get("etf_run") or {}
+
+        if is_kline_card:
+            low_pct = r.get("low_pe_diff")
+            high_pct = r.get("high_pe_diff")
+            low_str = f"+{low_pct}%" if low_pct and low_pct >= 0 else f"{low_pct}%"
+            high_str = f"{high_pct}%" if high_pct else ""
+
+            cards_html += f"""
+        <div class="card" style="border-left: 4px solid #5C6BC0;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #5C6BC0;">📈 点位分析</span>
+                <span class="index-code">{r['code']}</span>
+            </div>
+            <div class="card-title">{r['name']}</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">当前点位</span>
+                    <span class="data-value">{r['pe']}</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位</span>
+                    <span class="data-value">{r['low_pe']}</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位日期</span>
+                    <span class="data-value">{r['low_pe_date']}</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">距最低涨幅</span>
+                    <span class="data-value highlight">{low_str}</span>
+                </div>
+            </div>
+            <div class="extra-data" style="border-top: 1px dashed #e0e0e0; padding-top: 10px;">
+                <span class="extra-label">最高点位</span>
+                <span class="extra-value">{r['high_pe']}</span>
+                <span class="extra-pct">{r['high_pe_date']} 距最高跌幅{high_str}</span>
+            </div>
+        </div>"""
+            continue
+
         low_pe_html = ""
         if r.get("low_pe") is not None:
             diff_str = f"需跌{r['low_pe_diff']}%" if r.get("low_pe_diff") is not None else ""
@@ -571,41 +596,7 @@ def generate_html_report(results, date_str):
                 <span class="extra-value">{' | '.join(ew_parts)}</span>
             </div>"""
 
-        is_kline_card = r.get("source") == "kline"
-        if is_kline_card:
-            cards_html += f"""
-        <div class="card" style="border-left: 4px solid {rating['color']};">
-            <div class="card-header">
-                <span class="rating-badge" style="background: {rating['color']};">{rating['emoji']} {rating['level']}</span>
-                <span class="index-code">{r['code']}</span>
-            </div>
-            <div class="card-title">{r['name']}</div>
-            <div class="data-grid">
-                <div class="data-item">
-                    <span class="data-label">点位（收盘）</span>
-                    <span class="data-value">{r['pe']}</span>
-                </div>
-                <div class="data-item">
-                    <span class="data-label">点位百分位</span>
-                    <span class="data-value highlight">{r['pe_pct']}%</span>
-                </div>
-                <div class="data-item">
-                    <span class="data-label">历史最低点位</span>
-                    <span class="data-value">{r['low_pe']}</span>
-                </div>
-                <div class="data-item">
-                    <span class="data-label">最低点位日期</span>
-                    <span class="data-value">{r['low_pe_date']}</span>
-                </div>
-            </div>
-            <div class="extra-data">
-                <span class="extra-label">距历史最低需跌</span>
-                <span class="extra-value">{r['low_pe_diff']}%</span>
-            </div>
-            {ew_html}
-        </div>"""
-        else:
-            cards_html += f"""
+        cards_html += f"""
         <div class="card" style="border-left: 4px solid {rating['color']};">
             <div class="card-header">
                 <span class="rating-badge" style="background: {rating['color']};">{rating['emoji']} {rating['level']}</span>
@@ -877,15 +868,13 @@ def process_index(config, logger):
     code = config["code"]
     name = config["name"]
     danjuan_code = DANJUAN_CODE_MAP.get(code, code)
+    is_kline_only = code in KLINE_ONLY_CODES
 
-    logger.info(f"--- 处理指数: {name}（{code}）---")
+    logger.info(f"--- 处理指数: {name}（{code}）{'[点位分析]' if is_kline_only else ''}---")
 
     # 随机延迟
     delay = random.uniform(0.5, 2.0)
     time.sleep(delay)
-
-    # 获取蛋卷基金数据
-    danjuan_data = fetch_danjuan_pe_pb(danjuan_code, logger)
 
     result = {
         "code": code,
@@ -896,7 +885,7 @@ def process_index(config, logger):
         "pb": None,
         "pb_pct": None,
         "rating": None,
-        "source": "fallback",
+        "source": "kline",
         "etf_run": None,
         "low_pe": None,
         "low_pe_date": None,
@@ -904,13 +893,41 @@ def process_index(config, logger):
         "low_pb": None,
         "low_pb_date": None,
         "low_pb_diff": None,
+        "high_pe": None,
+        "high_pe_date": None,
+        "high_pe_diff": None,
     }
 
-    # 解析PE数据
+    # 点位分析：ETF代码不走PE/PB，直接拿K线
+    if is_kline_only:
+        kline_data = fetch_index_kline(code, logger)
+        price_history = kline_data.get("price_history", [])
+        if price_history:
+            latest_price = price_history[-1]["value"]
+            low_price, low_price_date = find_min_value_with_date(price_history)
+            high_item = max(price_history, key=lambda x: x["value"])
+            high_price = round(high_item["value"], 2)
+            high_price_date = datetime.fromtimestamp(high_item["ts"] / 1000).strftime("%Y-%m-%d")
+
+            result["pe"] = round(latest_price, 2)
+            result["low_pe"] = round(low_price, 2) if low_price else None
+            result["low_pe_date"] = low_price_date
+            result["high_pe"] = high_price
+            result["high_pe_date"] = high_price_date
+            if low_price and latest_price:
+                result["low_pe_diff"] = round((latest_price - low_price) / low_price * 100, 1)
+            if high_price and latest_price:
+                result["high_pe_diff"] = round((latest_price - high_price) / high_price * 100, 1)
+            logger.info(f"{name} 点位: 当前{latest_price} 最低{low_price}({low_price_date}) 最高{high_price}({high_price_date})")
+        else:
+            logger.warning(f"{name} K线数据获取失败，跳过")
+        return result
+
+    # 普通指数走PE/PB
+    danjuan_data = fetch_danjuan_pe_pb(danjuan_code, logger)
     pe_history = danjuan_data.get("pe_history", [])
     pb_history = danjuan_data.get("pb_history", [])
 
-    # 蛋卷无数据时，依次尝试baostock和雪球
     alt_source = None
     if not pe_history or not pb_history:
         alt_sources = [
@@ -952,7 +969,6 @@ def process_index(config, logger):
                 logger.info(f"{name} 点位估值: 当前{latest_price} 百分位{price_pct}%")
 
     if pe_history and pb_history:
-        # 过滤近10年数据
         pe_10y = filter_recent_years(pe_history, TEN_YEARS_MS)
         pb_10y = filter_recent_years(pb_history, TEN_YEARS_MS)
 
@@ -968,7 +984,6 @@ def process_index(config, logger):
             result["pb_pct"] = pb_pct
             result["source"] = alt_source or "danjuan"
 
-            # 全历史最低PE/PB值、日期及距当前涨跌幅（所有指数）
             low_pe, low_pe_date = find_min_value_with_date(pe_history)
             low_pb, low_pb_date = find_min_value_with_date(pb_history)
             result["low_pe"] = low_pe
@@ -986,24 +1001,7 @@ def process_index(config, logger):
             if low_pb:
                 logger.info(f"{name} 历史最低PB: {low_pb}（{low_pb_date}）, 距最低需跌{pb_diff}%")
         else:
-            logger.warning(f"{name} 近10年数据不足，使用兜底数据")
-    else:
-        logger.warning(f"{name} 蛋卷API数据获取失败，使用兜底数据")
-
-    # 兜底数据
-    if result["pe"] is None:
-        fb = FALLBACK_DATA.get(code, {})
-        result["pe"] = fb.get("pe")
-        result["pe_pct"] = fb.get("pe_pct")
-        result["pb"] = fb.get("pb")
-        result["pb_pct"] = fb.get("pb_pct")
-        result["low_pe"] = fb.get("low_pe")
-        result["low_pe_date"] = fb.get("low_pe_date")
-        result["low_pe_diff"] = fb.get("low_pe_diff")
-        result["low_pb"] = fb.get("low_pb")
-        result["low_pb_date"] = fb.get("low_pb_date")
-        result["low_pb_diff"] = fb.get("low_pb_diff")
-        result["source"] = "fallback"
+            logger.warning(f"{name} 近10年数据不足")
 
     # A股指数获取ETF.run辅助数据
     if code in ETF_RUN_URLS:
@@ -1047,27 +1045,7 @@ def run_workflow(push=False, detail_url=None, logger=None):
         except Exception as e:
             logger.error(f"处理 {config['name']} 异常: {e}", exc_info=True)
             errors.append({"index": config["name"], "error": str(e)})
-            # 使用兜底数据
-            fb = FALLBACK_DATA.get(config["code"], {})
-            fallback_result = {
-                "code": config["code"],
-                "name": config["name"],
-                "category": config.get("category", ""),
-                "pe": fb.get("pe"),
-                "pe_pct": fb.get("pe_pct"),
-                "pb": fb.get("pb"),
-                "pb_pct": fb.get("pb_pct"),
-                "rating": calc_rating(fb.get("pe_pct")),
-                "source": "fallback",
-                "etf_run": None,
-                "low_pe": fb.get("low_pe"),
-                "low_pe_date": fb.get("low_pe_date"),
-                "low_pe_diff": fb.get("low_pe_diff"),
-                "low_pb": fb.get("low_pb"),
-                "low_pb_date": fb.get("low_pb_date"),
-                "low_pb_diff": fb.get("low_pb_diff"),
-            }
-            results.append(fallback_result)
+            # 跳过，不在结果中加入兜底数据
 
     # 生成简版报告
     simple_report = generate_simple_report(results, date_str, detail_url)
@@ -1088,8 +1066,7 @@ def run_workflow(push=False, detail_url=None, logger=None):
     from_danjuan = sum(1 for r in results if r.get("source") == "danjuan")
     from_akshare = sum(1 for r in results if r.get("source") == "akshare")
     from_xueqiu = sum(1 for r in results if r.get("source") == "xueqiu")
-    from_realtime = from_danjuan + from_akshare + from_xueqiu
-    from_fallback = sum(1 for r in results if r.get("source") == "fallback")
+    from_kline = sum(1 for r in results if r.get("source") == "kline")
 
     # 写入状态文件
     status = {
@@ -1102,10 +1079,10 @@ def run_workflow(push=False, detail_url=None, logger=None):
         "danjuan_count": from_danjuan,
         "akshare_count": from_akshare,
         "xueqiu_count": from_xueqiu,
-        "fallback_count": from_fallback,
+        "kline_count": from_kline,
         "error_count": len(errors),
         "errors": errors if errors else None,
-        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, akshare{from_akshare}个, 雪球{from_xueqiu}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
+        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, akshare{from_akshare}个, 雪球{from_xueqiu}个, 点位{from_kline}个), 错误 {len(errors)} 个",
         "pushdeer": {
             "enabled": push,
             "success": push_status[0] if push_status else None,
