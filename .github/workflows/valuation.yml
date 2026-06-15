@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: 安装依赖
-        run: pip install requests brotli
+        run: pip install requests brotli baostock
       - name: 运行估值工作流
         run: python valuation/valuation_workflow.py --push --detail-url "https://zhenggongze.github.io/portfolio-analysis/valuation/reports/valuation_detail_$(date +%Y%m%d).html"
       - name: 提交HTML报告到仓库
