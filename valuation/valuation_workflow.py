@@ -36,8 +36,8 @@ DANJUAN_CODE_MAP = {
     "399989": "SZ399989",
     "399997": "SZ399997",
     "000993": "SH000993",
-    "980017": "SZ980017",
-    "931160": "SZ931160",
+    "159995": "OF159995",
+    "515880": "OF515880",
     "NDX": "NDX",
     "H30533": "CSIH30533",
 }
@@ -50,8 +50,8 @@ ETF_RUN_URLS = {
     "399989": "https://www.etf.run/index/SZ/399989",
     "399997": "https://www.etf.run/index/SZ/399997",
     "000993": "https://www.etf.run/index/SH/000993",
-    "980017": "https://www.etf.run/index/SZ/980017",
-    "931160": "https://www.etf.run/index/SZ/931160",
+    "159995": "https://www.etf.run/etf/SZ/159995",
+    "515880": "https://www.etf.run/etf/SH/515880",
 }
 
 # 指数配置列表
@@ -62,8 +62,8 @@ INDEX_CONFIG = [
     {"code": "399989", "name": "中证医疗", "category": "A股"},
     {"code": "399997", "name": "中证白酒", "category": "A股"},
     {"code": "000993", "name": "中证全指信息技术", "category": "A股"},
-    {"code": "980017", "name": "国证芯片", "category": "A股"},
-    {"code": "931160", "name": "通讯设备", "category": "A股"},
+    {"code": "159995", "name": "芯片ETF", "category": "A股"},
+    {"code": "515880", "name": "通信ETF", "category": "A股"},
     {"code": "NDX", "name": "纳斯达克100", "category": "其他"},
     {"code": "H30533", "name": "中概互联50", "category": "其他"},
 ]
@@ -88,12 +88,12 @@ FALLBACK_DATA = {
     "000993": {"pe": 45.30, "pe_pct": 48.70, "pb": 3.90, "pb_pct": 42.10,
                "low_pe": 28.40, "low_pe_date": "2018-10-18", "low_pe_diff": 37.3,
                "low_pb": 2.30, "low_pb_date": "2018-10-18", "low_pb_diff": 41.0},
-    "980017": {"pe": 85.50, "pe_pct": 72.30, "pb": 5.60, "pb_pct": 68.50,
-               "low_pe": 38.20, "low_pe_date": "2022-04-26", "low_pe_diff": 55.3,
-               "low_pb": 3.20, "low_pb_date": "2022-04-26", "low_pb_diff": 42.9},
-    "931160": {"pe": 38.60, "pe_pct": 55.80, "pb": 3.45, "pb_pct": 52.30,
-               "low_pe": 22.10, "low_pe_date": "2018-10-18", "low_pe_diff": 42.7,
-               "low_pb": 2.15, "low_pb_date": "2018-10-18", "low_pb_diff": 37.7},
+    "159995": {"pe": 75.50, "pe_pct": 65.30, "pb": 5.20, "pb_pct": 60.50,
+               "low_pe": 38.20, "low_pe_date": "2022-04-26", "low_pe_diff": 49.4,
+               "low_pb": 3.20, "low_pb_date": "2022-04-26", "low_pb_diff": 38.5},
+    "515880": {"pe": 42.60, "pe_pct": 58.80, "pb": 3.80, "pb_pct": 55.30,
+               "low_pe": 25.10, "low_pe_date": "2018-10-18", "low_pe_diff": 41.1,
+               "low_pb": 2.30, "low_pb_date": "2018-10-18", "low_pb_diff": 39.5},
     "NDX": {"pe": 34.39, "pe_pct": 68.36, "pb": 9.92, "pb_pct": 94.34,
             "low_pe": 15.28, "low_pe_date": "2008-11-20", "low_pe_diff": 55.6,
             "low_pb": 2.15, "low_pb_date": "2008-11-20", "low_pb_diff": 78.3},
@@ -294,8 +294,14 @@ def fetch_etf_run_data(index_code, logger):
 # ============================================================
 
 def fetch_xueqiu_pe_pb(index_code, logger):
-    """从雪球获取指数PE/PB历史数据（蛋卷不支持时使用）"""
+    """从雪球获取指数/ETF的PE/PB历史数据"""
     result = {"pe_history": [], "pb_history": [], "error": None}
+
+    # ETF/股票代码判断交易所前缀
+    if index_code.startswith(("5", "6")):
+        xq_prefix = "SH"
+    else:
+        xq_prefix = "SZ"
 
     try:
         s = requests.Session()
@@ -303,7 +309,7 @@ def fetch_xueqiu_pe_pb(index_code, logger):
         s.get("https://xueqiu.com/", timeout=10)
 
         for data_type, indicator, field_name in [("pe", "pe_ttm", "pe_history"), ("pb", "pb", "pb_history")]:
-            url = f"https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=SZ{index_code}&begin=0&period=week&type=before&count=-500&indicator={indicator}"
+            url = f"https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol={xq_prefix}{index_code}&begin=0&period=week&type=before&count=-500&indicator={indicator}"
             try:
                 resp = s.get(url, timeout=15)
                 data = resp.json()
@@ -324,7 +330,7 @@ def fetch_xueqiu_pe_pb(index_code, logger):
         # K线没数据时，尝试报价API获取当前PE/PB
         if not result["pe_history"]:
             try:
-                url = f"https://stock.xueqiu.com/v5/stock/quote.json?symbol=SZ{index_code}&extend=detail"
+                url = f"https://stock.xueqiu.com/v5/stock/quote.json?symbol={xq_prefix}{index_code}&extend=detail"
                 resp = s.get(url, timeout=10)
                 data = resp.json()
                 quote = data.get("data", {}).get("quote", {})
