@@ -12,6 +12,7 @@ import sys
 import time
 import random
 import argparse
+import pandas as pd
 from datetime import datetime, timezone, timedelta
 
 # ============================================================
@@ -346,64 +347,40 @@ def fetch_xueqiu_pe_pb(index_code, logger):
     return result
 
 
-def fetch_baostock_pe_pb(index_code, logger):
-    """从Baostock获取指数PE/PB历史数据"""
+def fetch_akshare_pe_pb(index_code, logger):
+    """从akshare获取指数PE/PB历史数据"""
     result = {"pe_history": [], "pb_history": [], "error": None}
 
     try:
-        import baostock as bs
-        lg = bs.login()
-        if lg.error_code != "0":
-            logger.warning(f"Baostock 登录失败: {lg.error_msg}")
-            return result
+        import akshare as ak
 
-        # Baostock指数代码格式: sz.980017, sh.000300
-        if index_code.startswith(("0", "5")):
-            bs_code = f"sh.{index_code}"
-        else:
-            bs_code = f"sz.{index_code}"
-
-        rs = bs.query_history_k_data_plus(
-            bs_code,
-            "date,peTTM,pbMRQ",
-            start_date="2015-01-01",
-            end_date="2030-12-31",
-            frequency="w",
-            adjustflag="3"
-        )
-
-        if rs.error_code != "0":
-            logger.warning(f"Baostock {index_code} 查询失败: {rs.error_msg}")
-            bs.logout()
-            return result
-
-        pe_history = []
-        pb_history = []
-        while rs.next():
-            row = rs.get_row_data()
-            date_str = row[0]
-            pe_str = row[1]
-            pb_str = row[2]
-            if date_str:
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
-                ts = int(dt.timestamp() * 1000)
-                if pe_str and pe_str != "0" and pe_str != "":
-                    pe_history.append({"ts": ts, "value": float(pe_str)})
-                if pb_str and pb_str != "0" and pb_str != "":
-                    pb_history.append({"ts": ts, "value": float(pb_str)})
-
-        pe_history.sort(key=lambda x: x["ts"])
-        pb_history.sort(key=lambda x: x["ts"])
-        result["pe_history"] = pe_history
-        result["pb_history"] = pb_history
-        logger.info(f"Baostock {index_code} PE记录{len(pe_history)}条, PB记录{len(pb_history)}条")
-        bs.logout()
+        for indicator, field_name in [("市盈率", "pe_history"), ("市净率", "pb_history")]:
+            df = ak.index_value_hist_funddb(
+                symbol=index_code,
+                indicator=indicator,
+                period="daily",
+                start_date="20150101",
+                end_date="20301231"
+            )
+            history = []
+            for _, row in df.iterrows():
+                date_val = row.get("日期")
+                val_col = "市盈率" if indicator == "市盈率" else "市净率"
+                val = row.get(val_col)
+                if date_val and pd.notna(date_val):
+                    dt = datetime.strptime(str(date_val)[:10], "%Y-%m-%d")
+                    ts = int(dt.timestamp() * 1000)
+                    if val and pd.notna(val) and float(val) > 0:
+                        history.append({"ts": ts, "value": float(val)})
+            history.sort(key=lambda x: x["ts"])
+            result[field_name] = history
+            logger.info(f"akshare {index_code} {indicator}: {len(history)} 条")
 
     except ImportError:
-        logger.warning("baostock 未安装, 跳过")
-        result["error"] = "baostock未安装"
+        logger.warning("akshare 未安装, 跳过")
+        result["error"] = "akshare未安装"
     except Exception as e:
-        logger.warning(f"Baostock {index_code} 异常: {e}")
+        logger.warning(f"akshare {index_code} 异常: {e}")
         result["error"] = str(e)
 
     return result
@@ -447,7 +424,7 @@ def generate_simple_report(results, date_str, detail_url=None):
 
     for r in sorted_results:
         rating = r.get("rating", {})
-        source_tag = "" if r.get("source") in ("danjuan", "xueqiu") else " ⚠️兜底数据"
+        source_tag = "" if r.get("source") in ("danjuan", "xueqiu", "akshare") else " ⚠️兜底数据"
         lines.append(
             f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
         )
@@ -838,7 +815,7 @@ def process_index(config, logger):
     alt_source = None
     if not pe_history or not pb_history:
         alt_sources = [
-            ("baostock", fetch_baostock_pe_pb),
+            ("akshare", fetch_akshare_pe_pb),
             ("xueqiu", fetch_xueqiu_pe_pb),
         ]
         for src_name, src_func in alt_sources:
@@ -986,8 +963,9 @@ def run_workflow(push=False, detail_url=None, logger=None):
 
     # 统计数据来源
     from_danjuan = sum(1 for r in results if r.get("source") == "danjuan")
+    from_akshare = sum(1 for r in results if r.get("source") == "akshare")
     from_xueqiu = sum(1 for r in results if r.get("source") == "xueqiu")
-    from_realtime = from_danjuan + from_xueqiu
+    from_realtime = from_danjuan + from_akshare + from_xueqiu
     from_fallback = sum(1 for r in results if r.get("source") == "fallback")
 
     # 写入状态文件
@@ -999,11 +977,12 @@ def run_workflow(push=False, detail_url=None, logger=None):
         "total_indices": len(INDEX_CONFIG),
         "fetched_count": len(results),
         "danjuan_count": from_danjuan,
+        "akshare_count": from_akshare,
         "xueqiu_count": from_xueqiu,
         "fallback_count": from_fallback,
         "error_count": len(errors),
         "errors": errors if errors else None,
-        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, 雪球{from_xueqiu}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
+        "summary": f"共处理 {len(results)} 个指数(蛋卷{from_danjuan}个, akshare{from_akshare}个, 雪球{from_xueqiu}个, 兜底{from_fallback}个), 错误 {len(errors)} 个",
         "pushdeer": {
             "enabled": push,
             "success": push_status[0] if push_status else None,
