@@ -399,6 +399,54 @@ def fetch_akshare_pe_pb(index_code, logger):
 
 
 # ============================================================
+# Node3.6：指数点位数据源（东方财富K线，PE/PB不可用时替代）
+# ============================================================
+
+INDEX_KLINES_MARKET = {
+    "980017": "0",
+    "931160": "2",
+    "159995": "0",
+    "515880": "2",
+}
+
+def fetch_index_kline(index_code, logger):
+    """从东方财富获取指数日K线历史点位数据"""
+    result = {"price_history": [], "error": None}
+
+    # ETF代码映射到跟踪指数
+    etf_map = {"159995": "980017", "515880": "931160"}
+    code = etf_map.get(index_code, index_code)
+    market = INDEX_KLINES_MARKET.get(code)
+
+    if not market:
+        result["error"] = f"未知指数市场代码: {code}"
+        return result
+
+    try:
+        url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=5000"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        klines = data.get("data", {}).get("klines", [])
+        history = []
+        for k in klines:
+            parts = k.split(",")
+            if len(parts) >= 5:
+                date_str = parts[0]
+                close_price = float(parts[2])
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                ts = int(dt.timestamp() * 1000)
+                history.append({"ts": ts, "value": close_price})
+        history.sort(key=lambda x: x["ts"])
+        result["price_history"] = history
+        logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value'] if history else '无'})")
+    except Exception as e:
+        logger.warning(f"K线 {code} 获取失败: {e}")
+        result["error"] = str(e)
+
+    return result
+
+
+# ============================================================
 # Node4：估值评级
 # ============================================================
 
@@ -436,18 +484,23 @@ def generate_simple_report(results, date_str, detail_url=None):
 
     for r in sorted_results:
         rating = r.get("rating", {})
-        source_tag = "" if r.get("source") in ("danjuan", "xueqiu", "eastmoney") else " ⚠️兜底数据"
+        is_kline = r.get("source") == "kline"
+        source_tag = "" if r.get("source") in ("danjuan", "xueqiu", "akshare", "kline") else " ⚠️兜底数据"
+        pe_label = "点位" if is_kline else "PE"
         lines.append(
             f"{rating['emoji']} {r['name']}（{r['code']}）{source_tag}"
         )
-        lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
-        lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
-        if r.get("low_pe") is not None:
-            diff_str = f"（需跌{r['low_pe_diff']}%）" if r.get("low_pe_diff") is not None else ""
-            lines.append(f"  历史最低PE：{r['low_pe']}（{r['low_pe_date']}）{diff_str}")
-        if r.get("low_pb") is not None:
-            diff_str = f"（需跌{r['low_pb_diff']}%）" if r.get("low_pb_diff") is not None else ""
-            lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）{diff_str}")
+        lines.append(f"  {pe_label}：{r['pe']}（分位 {r['pe_pct']}%）")
+        if is_kline:
+            lines.append(f"  历史最低点位：{r['low_pe']}（{r['low_pe_date']}）（需跌{r['low_pe_diff']}%）")
+        else:
+            lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
+            if r.get("low_pe") is not None:
+                diff_str = f"（需跌{r['low_pe_diff']}%）" if r.get("low_pe_diff") is not None else ""
+                lines.append(f"  历史最低PE：{r['low_pe']}（{r['low_pe_date']}）{diff_str}")
+            if r.get("low_pb") is not None:
+                diff_str = f"（需跌{r['low_pb_diff']}%）" if r.get("low_pb_diff") is not None else ""
+                lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）{diff_str}")
         lines.append(f"  估值评级：{rating['level']}")
         lines.append("")
 
@@ -518,7 +571,41 @@ def generate_html_report(results, date_str):
                 <span class="extra-value">{' | '.join(ew_parts)}</span>
             </div>"""
 
-        cards_html += f"""
+        is_kline_card = r.get("source") == "kline"
+        if is_kline_card:
+            cards_html += f"""
+        <div class="card" style="border-left: 4px solid {rating['color']};">
+            <div class="card-header">
+                <span class="rating-badge" style="background: {rating['color']};">{rating['emoji']} {rating['level']}</span>
+                <span class="index-code">{r['code']}</span>
+            </div>
+            <div class="card-title">{r['name']}</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">点位（收盘）</span>
+                    <span class="data-value">{r['pe']}</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">点位百分位</span>
+                    <span class="data-value highlight">{r['pe_pct']}%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">历史最低点位</span>
+                    <span class="data-value">{r['low_pe']}</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位日期</span>
+                    <span class="data-value">{r['low_pe_date']}</span>
+                </div>
+            </div>
+            <div class="extra-data">
+                <span class="extra-label">距历史最低需跌</span>
+                <span class="extra-value">{r['low_pe_diff']}%</span>
+            </div>
+            {ew_html}
+        </div>"""
+        else:
+            cards_html += f"""
         <div class="card" style="border-left: 4px solid {rating['color']};">
             <div class="card-header">
                 <span class="rating-badge" style="background: {rating['color']};">{rating['emoji']} {rating['level']}</span>
@@ -839,6 +926,30 @@ def process_index(config, logger):
                 alt_source = src_name
                 logger.info(f"{name} {src_name}数据获取成功")
                 break
+
+    # PE/PB全失败时，尝试指数点位数据（K线）
+    if not pe_history or not pb_history:
+        logger.info(f"{name} PE/PB均失败，尝试指数点位估值...")
+        kline_data = fetch_index_kline(code, logger)
+        price_history = kline_data.get("price_history", [])
+        if price_history:
+            price_10y = filter_recent_years(price_history, TEN_YEARS_MS)
+            if price_10y:
+                latest_price = price_10y[-1]["value"]
+                low_price, low_price_date = find_min_value_with_date(price_history)
+                price_pct = calc_percentile(price_10y, latest_price)
+                result["pe"] = round(latest_price, 2)
+                result["pe_pct"] = price_pct
+                result["pb"] = round(low_price, 2) if low_price else None
+                result["pb_pct"] = None
+                result["source"] = "kline"
+                result["low_pe"] = low_price
+                result["low_pe_date"] = low_price_date
+                if low_price and latest_price:
+                    diff = round((latest_price - low_price) / latest_price * 100, 1)
+                    result["low_pe_diff"] = diff
+                alt_source = "kline"
+                logger.info(f"{name} 点位估值: 当前{latest_price} 百分位{price_pct}%")
 
     if pe_history and pb_history:
         # 过滤近10年数据
