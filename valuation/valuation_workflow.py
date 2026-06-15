@@ -397,19 +397,32 @@ def fetch_index_kline(index_code, logger):
         stock_data = data.get("data", {})
         klines = stock_data.get("klines", [])
         if not klines:
-            logger.warning(f"K线 {code} 返回空数据: {resp.text[:200]}")
-        history = []
-        for k in klines:
-            parts = k.split(",")
-            if len(parts) >= 5:
-                date_str = parts[0]
-                close_price = float(parts[2])
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
-                ts = int(dt.timestamp() * 1000)
-                history.append({"ts": ts, "value": close_price})
-        history.sort(key=lambda x: x["ts"])
-        result["price_history"] = history
-        logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value'] if history else '无'})")
+            logger.warning(f"K线 {code} 返回空数据，尝试实时报价API...")
+            quote_url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f43,f57,f58"
+            qresp = requests.get(quote_url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            qdata = qresp.json()
+            qstock = qdata.get("data", {})
+            current_val = qstock.get("f43")
+            if current_val and float(current_val) > 0:
+                now_ts = int(time.time() * 1000)
+                history.append({"ts": now_ts, "value": float(current_val)})
+                result["price_history"] = history
+                logger.info(f"K线 {code} 实时报价: {current_val}")
+            else:
+                logger.warning(f"K线 {code} 实时报价也失败: {qresp.text[:200]}")
+        else:
+            history = []
+            for k in klines:
+                parts = k.split(",")
+                if len(parts) >= 5:
+                    date_str = parts[0]
+                    close_price = float(parts[2])
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    ts = int(dt.timestamp() * 1000)
+                    history.append({"ts": ts, "value": close_price})
+            history.sort(key=lambda x: x["ts"])
+            result["price_history"] = history
+            logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value'] if history else '无'})")
     except Exception as e:
         logger.warning(f"K线 {code} 获取失败: {e}")
         result["error"] = str(e)
