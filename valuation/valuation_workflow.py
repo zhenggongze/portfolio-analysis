@@ -391,7 +391,17 @@ def fetch_index_kline(index_code, logger):
 
     try:
         url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=5000"
-        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(5)
+        if not resp:
+            result["error"] = "3次请求均失败"
+            return result
         data = resp.json()
         stock_data = data.get("data", {})
         klines = stock_data.get("klines", [])
