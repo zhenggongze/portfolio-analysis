@@ -302,23 +302,42 @@ def fetch_xueqiu_pe_pb(index_code, logger):
         s.get("https://xueqiu.com/", timeout=10)
 
         for data_type, indicator, field_name in [("pe", "pe_ttm", "pe_history"), ("pb", "pb", "pb_history")]:
-            url = f"https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=SZ{index_code}&begin=0&period=week&type=before&count=-10000&indicator={indicator}"
+            url = f"https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=SZ{index_code}&begin=0&period=week&type=before&count=-500&indicator={indicator}"
             try:
                 resp = s.get(url, timeout=15)
                 data = resp.json()
                 items = data.get("data", {}).get("item", [])
                 history = []
                 for item in items:
-                    if isinstance(item, list) and len(item) >= 11:
+                    if isinstance(item, list) and len(item) >= 10:
                         ts = item[0]
-                        val = item[10]
-                        if ts and val and float(val) > 0:
+                        val = item[-1]
+                        if ts and val and val != 0 and float(val) > 0:
                             history.append({"ts": ts, "value": float(val)})
                 history.sort(key=lambda x: x["ts"])
                 result[field_name] = history
-                logger.info(f"雪球 {index_code} {data_type.upper()} 获取: {len(history)} 条")
+                logger.info(f"雪球 {index_code} {data_type.upper()} K线: {len(history)} 条")
             except Exception as e:
-                logger.warning(f"雪球 {index_code} {data_type.upper()} 子请求失败: {e}")
+                logger.warning(f"雪球 {index_code} {data_type.upper()} K线失败: {e}")
+
+        # K线没数据时，尝试报价API获取当前PE/PB
+        if not result["pe_history"]:
+            try:
+                url = f"https://stock.xueqiu.com/v5/stock/quote.json?symbol=SZ{index_code}&extend=detail"
+                resp = s.get(url, timeout=10)
+                data = resp.json()
+                quote = data.get("data", {}).get("quote", {})
+                pe = quote.get("pe_ttm") or quote.get("ttm_pe")
+                pb = quote.get("pb") or quote.get("pb_lf")
+                ts = int(time.time() * 1000)
+                if pe:
+                    result["pe_history"] = [{"ts": ts, "value": float(pe)}]
+                    logger.info(f"雪球 {index_code} PE(报价): {pe}")
+                if pb:
+                    result["pb_history"] = [{"ts": ts, "value": float(pb)}]
+                    logger.info(f"雪球 {index_code} PB(报价): {pb}")
+            except Exception as e:
+                logger.warning(f"雪球 {index_code} 报价API失败: {e}")
 
     except Exception as e:
         logger.warning(f"雪球 {index_code} 获取失败: {e}")
