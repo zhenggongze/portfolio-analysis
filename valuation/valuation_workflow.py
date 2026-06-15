@@ -479,7 +479,7 @@ def generate_simple_report(results, date_str, detail_url=None):
         else:
             rating = r.get("rating", {})
             lines.append(
-                f"{rating['emoji']} {r['name']}（{r['code']}）"
+                f"{r['name']}（{r['code']}）"
             )
             lines.append(f"  PE：{r['pe']}（分位 {r['pe_pct']}%）")
             lines.append(f"  PB：{r['pb']}（分位 {r['pb_pct']}%）")
@@ -489,7 +489,7 @@ def generate_simple_report(results, date_str, detail_url=None):
             if r.get("low_pb") is not None:
                 diff_str = f"（需跌{r['low_pb_diff']}%）" if r.get("low_pb_diff") is not None else ""
                 lines.append(f"  历史最低PB：{r['low_pb']}（{r['low_pb_date']}）{diff_str}")
-            lines.append(f"  估值评级：{rating['level']}")
+            lines.append(f"  估值评级：{rating['emoji']} {rating['level']}")
         lines.append("")
 
     lines.append("---")
@@ -1054,6 +1054,24 @@ def run_workflow(push=False, detail_url=None, logger=None):
             logger.error(f"处理 {config['name']} 异常: {e}", exc_info=True)
             errors.append({"index": config["name"], "error": str(e)})
             # 跳过，不在结果中加入兜底数据
+
+    # 数据校验：点位分析ETF数据不完整则跳过推送
+    data_errors = []
+    for r in results:
+        code = r["code"]
+        if code in KLINE_ONLY_CODES:
+            if r.get("pe") is None or r.get("low_pe") is None or r.get("high_pe") is None:
+                data_errors.append(f"{r['name']} 点位数据不完整 (当前={r.get('pe')}, 最低={r.get('low_pe')}, 最高={r.get('high_pe')})")
+        else:
+            if r.get("pe") is None or r.get("pe_pct") is None:
+                data_errors.append(f"{r['name']} PE数据缺失")
+
+    if data_errors:
+        for err in data_errors:
+            logger.error(f"数据校验失败: {err}")
+        logger.error(f"共 {len(data_errors)} 个指数数据不完整，取消推送")
+        errors.extend([{"index": e.split(" ")[0], "error": e} for e in data_errors])
+        push = False
 
     # 生成简版报告
     simple_report = generate_simple_report(results, date_str, detail_url)
