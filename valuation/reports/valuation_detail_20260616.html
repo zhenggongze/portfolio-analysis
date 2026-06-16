@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>指数估值报告 - 20260616</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f5f6fa;
+    color: #2c3e50;
+    line-height: 1.6;
+}
+.container { max-width: 900px; margin: 0 auto; padding: 20px; }
+.header {
+    text-align: center;
+    padding: 30px 20px;
+    background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+    color: white;
+    border-radius: 12px;
+    margin-bottom: 24px;
+}
+.header h1 { font-size: 1.6rem; margin-bottom: 8px; }
+.header .subtitle { font-size: 0.85rem; opacity: 0.85; }
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+}
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.cards { display: flex; flex-direction: column; gap: 16px; }
+.card {
+    background: white;
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    transition: transform 0.15s;
+}
+.card:hover { transform: translateY(-1px); box-shadow: 0 3px 12px rgba(0,0,0,0.1); }
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+.rating-badge {
+    color: white;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.index-code {
+    font-size: 0.78rem;
+    color: #90a4ae;
+    font-family: "SF Mono", "Fira Code", monospace;
+}
+.card-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #1a237e;
+}
+.data-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+}
+.data-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.data-label {
+    font-size: 0.72rem;
+    color: #90a4ae;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.data-value {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #37474f;
+}
+.data-value.highlight { color: #1a237e; font-size: 1.15rem; }
+.extra-data {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #e0e0e0;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 0.82rem;
+}
+.extra-label {
+    color: #90a4ae;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+.extra-value { color: #5c6bc0; font-weight: 600; }
+.extra-pct { color: #37474f; }
+.etf-run { background: #f9fafc; padding: 8px 10px; border-radius: 6px; }
+.footer {
+    text-align: center;
+    padding: 24px 20px;
+    color: #90a4ae;
+    font-size: 0.75rem;
+    margin-top: 20px;
+}
+.footer p { margin-bottom: 4px; }
+.sort-info {
+    text-align: center;
+    margin-bottom: 16px;
+    font-size: 0.8rem;
+    color: #90a4ae;
+}
+
+@media (max-width: 600px) {
+    .container { padding: 12px; }
+    .header { padding: 20px 16px; border-radius: 8px; }
+    .header h1 { font-size: 1.3rem; }
+    .card { padding: 14px; }
+    .data-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📊 指数估值日报</h1>
+        <div class="subtitle">20260616 · 更新于 2026-06-16 09:21:42 · 数据来源：蛋卷基金 + ETF.run</div>
+    </div>
+
+    <div class="legend">
+        <span style="font-size:0.8rem;color:#90a4ae;">评级图例：</span>
+        
+            <div class="legend-item">
+                <span class="legend-dot" style="background: #E53935;"></span>
+                <span>🔴 极度高估（>90%）</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot" style="background: #FB8C00;"></span>
+                <span>🟠 高估（70%-90%）</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot" style="background: #FDD835;"></span>
+                <span>🟡 合理（30%-70%）</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot" style="background: #43A047;"></span>
+                <span>🟢 低估（10%-30%）</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot" style="background: #1E88E5;"></span>
+                <span>🔵 极度低估（<10%）</span>
+            </div>
+    </div>
+
+    <div class="sort-info">按 PE 百分位从低到高排序（低估 → 高估）</div>
+
+    <div class="cards">
+        
+        <div class="card" style="border-left: 4px solid #5C6BC0;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #5C6BC0;">📈 点位分析</span>
+                <span class="index-code">159995</span>
+            </div>
+            <div class="card-title">芯片ETF</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">当前点位</span>
+                    <span class="data-value">None</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位</span>
+                    <span class="data-value">None</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位日期</span>
+                    <span class="data-value">None</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">距最低涨幅</span>
+                    <span class="data-value highlight">None%</span>
+                </div>
+            </div>
+            <div class="extra-data" style="border-top: 1px dashed #e0e0e0; padding-top: 10px;">
+                <span class="extra-label">最高点位</span>
+                <span class="extra-value">None</span>
+                <span class="extra-pct">None 距最高跌幅</span>
+            </div>
+        </div>
+        <div class="card" style="border-left: 4px solid #5C6BC0;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #5C6BC0;">📈 点位分析</span>
+                <span class="index-code">515880</span>
+            </div>
+            <div class="card-title">通信ETF</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">当前点位</span>
+                    <span class="data-value">None</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位</span>
+                    <span class="data-value">None</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">最低点位日期</span>
+                    <span class="data-value">None</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">距最低涨幅</span>
+                    <span class="data-value highlight">None%</span>
+                </div>
+            </div>
+            <div class="extra-data" style="border-top: 1px dashed #e0e0e0; padding-top: 10px;">
+                <span class="extra-label">最高点位</span>
+                <span class="extra-value">None</span>
+                <span class="extra-pct">None 距最高跌幅</span>
+            </div>
+        </div>
+        <div class="card" style="border-left: 4px solid #1E88E5;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #1E88E5;">🔵 极度低估</span>
+                <span class="index-code">H30533</span>
+            </div>
+            <div class="card-title">中概互联50</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">16.32</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">1.56%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">2.12</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">0.97%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">14.82</span>
+                <span class="extra-pct">2024-01-21 需跌9.2%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">1.82</span>
+                <span class="extra-pct">2022-10-30 需跌14.2%</span>
+            </div>
+            
+        </div>
+        <div class="card" style="border-left: 4px solid #1E88E5;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #1E88E5;">🔵 极度低估</span>
+                <span class="index-code">399989</span>
+            </div>
+            <div class="card-title">中证医疗</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">26.45</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">8.37%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">2.97</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">1.17%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">23.19</span>
+                <span class="extra-pct">2022-09-25 需跌12.3%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">2.88</span>
+                <span class="extra-pct">2024-09-22 需跌3.0%</span>
+            </div>
+            
+        </div>
+        <div class="card" style="border-left: 4px solid #43A047;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #43A047;">🟢 低估</span>
+                <span class="index-code">399997</span>
+            </div>
+            <div class="card-title">中证白酒</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">19.32</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">11.48%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">3.79</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">0.19%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">16.24</span>
+                <span class="extra-pct">2024-09-17 需跌15.9%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">3.76</span>
+                <span class="extra-pct">2026-06-07 需跌0.8%</span>
+            </div>
+            
+        </div>
+        <div class="card" style="border-left: 4px solid #FDD835;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #FDD835;">🟡 合理</span>
+                <span class="index-code">NDX</span>
+            </div>
+            <div class="card-title">纳斯达克100</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">34.25</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">66.41%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">10.05</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">94.92%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">19.87</span>
+                <span class="extra-pct">2022-07-17 需跌42.0%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">3.67</span>
+                <span class="extra-pct">2016-06-26 需跌63.5%</span>
+            </div>
+            
+        </div>
+        <div class="card" style="border-left: 4px solid #FDD835;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #FDD835;">🟡 合理</span>
+                <span class="index-code">399006</span>
+            </div>
+            <div class="card-title">创业板</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">50.9</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">68.29%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">6.82</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">82.68%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">23.1</span>
+                <span class="extra-pct">2024-02-04 需跌54.6%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">3.01</span>
+                <span class="extra-pct">2024-09-22 需跌55.9%</span>
+            </div>
+            
+        </div>
+        <div class="card" style="border-left: 4px solid #E53935;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #E53935;">🔴 极度高估</span>
+                <span class="index-code">000905</span>
+            </div>
+            <div class="card-title">中证500</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">39.45</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">91.63%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">2.63</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">86.38%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">15.58</span>
+                <span class="extra-pct">2022-04-24 需跌60.5%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">1.39</span>
+                <span class="extra-pct">2024-09-17 需跌47.1%</span>
+            </div>
+            
+        </div>
+        <div class="card" style="border-left: 4px solid #E53935;">
+            <div class="card-header">
+                <span class="rating-badge" style="background: #E53935;">🔴 极度高估</span>
+                <span class="index-code">000300</span>
+            </div>
+            <div class="card-title">沪深300</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <span class="data-label">PE（加权）</span>
+                    <span class="data-value">14.79</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PE 百分位</span>
+                    <span class="data-value highlight">92.22%</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB（加权）</span>
+                    <span class="data-value">1.49</span>
+                </div>
+                <div class="data-item">
+                    <span class="data-label">PB 百分位</span>
+                    <span class="data-value">60.51%</span>
+                </div>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PE</span>
+                <span class="extra-value">10.09</span>
+                <span class="extra-pct">2019-01-01 需跌31.8%</span>
+            </div>
+            
+            <div class="extra-data">
+                <span class="extra-label">历史最低PB</span>
+                <span class="extra-value">1.15</span>
+                <span class="extra-pct">2024-01-21 需跌22.8%</span>
+            </div>
+            
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>数据说明：PE/PB为蛋卷基金加权数据，基于近10年周频数据计算百分位</p>
+        <p>ETF.run提供等权PE/PB作为辅助参考，不参与主评级计算</p>
+        <p>历史最低PE/PB基于蛋卷基金全量历史数据</p>
+        <p>T+1数据，仅供参考，不构成投资建议</p>
+    </div>
+</div>
+</body>
+</html>
