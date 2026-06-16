@@ -1069,8 +1069,7 @@ def run_workflow(push=False, detail_url=None, logger=None):
     if data_errors:
         for err in data_errors:
             logger.error(f"数据校验失败: {err}")
-        logger.error(f"共 {len(data_errors)} 个指数数据不完整，取消推送")
-        errors.extend([{"index": e.split(" ")[0], "error": e} for e in data_errors])
+        logger.error(f"共 {len(data_errors)} 个指数数据不完整，跳过推送但不标记失败")
         push = False
 
     # 生成简版报告
