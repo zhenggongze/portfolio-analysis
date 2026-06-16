@@ -1,7 +1,7 @@
 {
   "task": "指数估值日报",
   "date": "20260616",
-  "timestamp": "2026-06-16T09:20:35.378861+08:00",
+  "timestamp": "2026-06-16T09:27:11.545354+08:00",
   "success": true,
   "total_indices": 9,
   "fetched_count": 9,
@@ -13,7 +13,9 @@
   "errors": null,
   "summary": "共处理 9 个指数(蛋卷7个, akshare0个, 雪球0个, 点位2个), 错误 0 个",
   "pushdeer": {
-    "enabled": false
+    "enabled": true,
+    "success": true,
+    "response": "{'code': 0, 'content': {'result': ['{\"counts\":1,\"logs\":[],\"success\":\"ok\"}']}}"
   },
   "html_file": "reports/valuation_detail_20260616.html"
 }
