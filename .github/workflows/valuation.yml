@@ -1,15 +1,10 @@
 name: 指数估值日报推送
 
 on:
-  schedule:
-    # 北京时间 08:00（UTC 00:00），每日
-    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   valuation:
@@ -24,7 +19,7 @@ jobs:
       - name: 安装依赖
         run: pip install requests brotli akshare
       - name: 运行估值工作流
-        run: python valuation/valuation_workflow.py --push --detail-url "https://zhenggongze.github.io/portfolio-analysis/valuation/reports/valuation_detail_$(date +%Y%m%d).html"
+        run: python valuation/valuation_workflow.py --push
       - name: 提交HTML报告到仓库
         run: |
           git config user.name "github-actions[bot]"
@@ -32,8 +27,3 @@ jobs:
           git add valuation/reports/valuation_detail_*.html valuation/logs/valuation_*_status.json
           git diff --staged --quiet || git commit -m "Auto-update valuation report $(date +%Y%m%d)"
           git push
-      - name: 上传日志
-        uses: actions/upload-artifact@v4
-        with:
-          name: valuation-logs
-          path: valuation/logs/
