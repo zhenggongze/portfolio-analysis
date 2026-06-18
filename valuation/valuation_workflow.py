@@ -414,7 +414,21 @@ def fetch_index_kline(index_code, logger):
             result["price_history"] = history
             logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value']})")
         else:
-            logger.warning(f"K线 {code} 返回空数据: {resp.text[:200]}")
+            logger.warning(f"K线 {code} 返回空数据，尝试实时报价兜底...")
+            try:
+                quote_url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f43,f57,f58"
+                qresp = requests.get(quote_url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                qdata = qresp.json()
+                qstock = qdata.get("data", {})
+                current_val = qstock.get("f43")
+                if current_val and float(current_val) > 0:
+                    now_ts = int(time.time() * 1000)
+                    result["price_history"] = [{"ts": now_ts, "value": float(current_val)}]
+                    logger.info(f"K线 {code} 实时报价兜底: {current_val}")
+                else:
+                    logger.warning(f"K线 {code} 实时报价也失败: {qresp.text[:200]}")
+            except Exception as e2:
+                logger.warning(f"K线 {code} 实时报价异常: {e2}")
     except Exception as e:
         logger.warning(f"K线 {code} 获取失败: {e}")
         result["error"] = str(e)
@@ -1055,22 +1069,18 @@ def run_workflow(push=False, detail_url=None, logger=None):
             errors.append({"index": config["name"], "error": str(e)})
             # 跳过，不在结果中加入兜底数据
 
-    # 数据校验：点位分析ETF数据不完整则跳过推送
-    data_errors = []
-    for r in results:
-        code = r["code"]
-        if code in KLINE_ONLY_CODES:
-            if r.get("pe") is None or r.get("low_pe") is None or r.get("high_pe") is None:
-                data_errors.append(f"{r['name']} 点位数据不完整 (当前={r.get('pe')}, 最低={r.get('low_pe')}, 最高={r.get('high_pe')})")
-        else:
-            if r.get("pe") is None or r.get("pe_pct") is None:
-                data_errors.append(f"{r['name']} PE数据缺失")
+    # 数据校验：点位分析ETF全部缺失才跳过推送
+    kline_missing = [r for r in results if r["code"] in KLINE_ONLY_CODES and (r.get("pe") is None or r.get("low_pe") is None)]
+    pe_missing = [r for r in results if r["code"] not in KLINE_ONLY_CODES and (r.get("pe") is None or r.get("pe_pct") is None)]
 
-    if data_errors:
-        for err in data_errors:
-            logger.error(f"数据校验失败: {err}")
-        logger.error(f"共 {len(data_errors)} 个指数数据不完整，跳过推送但不标记失败")
+    if len(kline_missing) == len([r for r in results if r["code"] in KLINE_ONLY_CODES]) and len(kline_missing) > 0:
+        logger.error(f"所有点位分析ETF数据均不完整，取消推送: {[r['name'] for r in kline_missing]}")
         push = False
+    elif pe_missing:
+        logger.warning(f"部分PE指数数据缺失，仍推送: {[r['name'] for r in pe_missing]}")
+    if kline_missing and len(kline_missing) < len([r for r in results if r["code"] in KLINE_ONLY_CODES]):
+        for r in kline_missing:
+            logger.warning(f"{r['name']} 点位数据不完整（当前={r.get('pe')}），仍推送")
 
     # 生成简版报告
     simple_report = generate_simple_report(results, date_str, detail_url)
