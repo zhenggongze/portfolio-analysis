@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+<meta name="version" content="v20260618-3">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <title>持仓分析系统</title>
   <style>
@@ -134,6 +135,16 @@
       width: 10px; height: 10px; border-radius: 50%;
     }
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .overview-table {
+      width: 100%; border-collapse: collapse; font-size: 13px; min-width: 0; text-align: center;
+    }
+    .overview-table thead th {
+      text-align: center; padding: 6px 4px; border-bottom: 2px solid var(--border);
+      font-weight: 600; font-size: 12px; color: var(--text-secondary); white-space: nowrap;
+    }
+    .overview-table tbody td {
+      padding: 5px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; text-align: center;
+    }
     table {
       width: 100%; border-collapse: collapse; font-size: 14px; min-width: 700px;
     }
@@ -200,27 +211,17 @@
     }
     .expand-btn:hover { color: var(--text); }
     .detail-row td { padding: 0 !important; }
-    .detail-content { padding: 12px 16px 12px 48px; background: #fafafa; }
-    .detail-content table { font-size: 13px; }
-    .detail-content th { font-size: 12px; padding: 6px 12px; }
-    .detail-content td { padding: 6px 12px; }
+    .detail-content { padding: 8px 8px 8px 32px; background: #fafafa; }
+    .detail-content table { font-size: 11px; }
+    .detail-content th { font-size: 10px; padding: 4px 8px; }
+    .detail-content td { padding: 4px 8px; }
+    .conc-hidden { display: none; }
     input[type="number"] {
       width: 100%; padding: 10px 14px; border: 1px solid var(--border);
       border-radius: 8px; font-size: 14px; font-family: inherit;
       outline: none; transition: border-color 0.2s;
     }
     input[type="number"]:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(139,41,66,0.1); }
-    .alert {
-      display: flex; align-items: flex-start; gap: 12px;
-      padding: 16px; border-radius: 12px; margin-bottom: 24px;
-    }
-    .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; }
-    .alert-info h4 { color: #1e40af; }
-    .alert-info p, .alert-info li { color: #3b82f6; }
-    .alert-warning { background: #fefce8; border: 1px solid #fde68a; }
-    .alert-warning h4 { color: #92400e; }
-    .alert-warning li { color: #a16207; }
-    .alert svg { flex-shrink: 0; margin-top: 2px; }
     .privacy-btn {
       width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
       background: #fff; cursor: pointer; display: flex; align-items: center;
@@ -325,10 +326,6 @@ if ('serviceWorker' in navigator) {
     </button>
   </div>
   <nav>
-    <a href="#/" class="active" onclick="navigate('/')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
-      持仓统计
-    </a>
     <a href="#/history/overview" onclick="navigate('/history/overview')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       历史记录概览
@@ -348,11 +345,147 @@ if ('serviceWorker' in navigator) {
 <main class="main" id="content"></main>
 
 <script>
+
+// ====== 日志客户端 ======
+(function() {
+  var logQueue = [];
+  var sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+
+  function sendLog(entry) {
+    entry.session = sessionId;
+    entry.ts = new Date().toISOString();
+    logQueue.push(entry);
+    if (logQueue.length >= 5) flushLogs();
+    // 本地备份：同时写入 localStorage（生产环境无后端时日志不丢失）
+    saveToLocalLog(entry);
+  }
+
+  function flushLogs() {
+    if (logQueue.length === 0) return;
+    var batch = logQueue.splice(0);
+    try {
+      fetch('/api/log/report', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(batch),
+        keepalive: true
+      }).then(function(r) {
+        if (r.ok) clearLocalLogs();
+      }).catch(function(){});
+    } catch(e) {}
+  }
+
+  var LOCAL_LOG_KEY = 'portfolio_client_logs';
+  var MAX_LOCAL_LOGS = 3000;
+
+  function saveToLocalLog(entry) {
+    try {
+      var raw = localStorage.getItem(LOCAL_LOG_KEY);
+      var logs = raw ? JSON.parse(raw) : [];
+      logs.push(entry);
+      if (logs.length > MAX_LOCAL_LOGS) logs = logs.slice(-MAX_LOCAL_LOGS);
+      localStorage.setItem(LOCAL_LOG_KEY, JSON.stringify(logs));
+    } catch(e) {}
+  }
+
+  function clearLocalLogs() {
+    try { localStorage.removeItem(LOCAL_LOG_KEY); } catch(e) {}
+  }
+
+  // 暴露读取接口，供 Playwright 或开发者工具调用
+  window.getClientLogs = function(category, level, limit) {
+    try {
+      var raw = localStorage.getItem(LOCAL_LOG_KEY);
+      var logs = raw ? JSON.parse(raw) : [];
+      if (category) logs = logs.filter(function(l) { return l.category === category; });
+      if (level) logs = logs.filter(function(l) { return l.level === level; });
+      if (limit) logs = logs.slice(-limit);
+      return logs;
+    } catch(e) { return []; }
+  };
+
+  // 页面关闭时刷新
+  window.addEventListener('beforeunload', flushLogs);
+  // 每30秒自动刷新
+  setInterval(flushLogs, 30000);
+
+  // 全局JS错误捕获
+  window.addEventListener('error', function(e) {
+    sendLog({
+      level: 'ERROR',
+      source: 'client',
+      category: 'error',
+      message: e.message,
+      meta: {
+        filename: e.filename || '',
+        lineno: e.lineno || 0,
+        colno: e.colno || 0,
+        stack: (e.error && e.error.stack) ? e.error.stack.substring(0, 500) : ''
+      }
+    });
+  });
+
+  // unhandled promise 拒绝
+  window.addEventListener('unhandledrejection', function(e) {
+    sendLog({
+      level: 'ERROR',
+      source: 'client',
+      category: 'error',
+      message: 'Unhandled Promise Rejection: ' + (e.reason ? (e.reason.message || String(e.reason)) : 'unknown'),
+      meta: { stack: (e.reason && e.reason.stack) ? e.reason.stack.substring(0, 500) : '' }
+    });
+  });
+
+  // 暴露给业务代码
+  window.clientLog = function(level, category, message, meta) {
+    sendLog({
+      level: level || 'INFO',
+      source: 'client',
+      category: category || 'general',
+      message: message,
+      meta: meta || {}
+    });
+  };
+
+  window.logPerf = function(category, duration_ms, meta) {
+    sendLog({
+      level: 'INFO',
+      source: 'client',
+      category: 'perf',
+      message: category + ': ' + duration_ms + 'ms',
+      duration_ms: duration_ms,
+      meta: meta || {}
+    });
+  };
+
+  window.logData = function(action, meta) {
+    sendLog({
+      level: 'INFO',
+      source: 'client',
+      category: 'data',
+      message: action,
+      meta: meta || {}
+    });
+  };
+
+  window.logAudit = function(action, meta) {
+    sendLog({
+      level: 'INFO',
+      source: 'client',
+      category: 'audit',
+      message: action,
+      meta: meta || {}
+    });
+  };
+})();
+
+// API 回退地址（OSS 静态托管无后端时，自动切换到 CF Tunnel 后端）
+var apiBaseFallback = '';
+
 // ====== 数据 ======
 const data = {
   funds: [
     { code: '162412', name: '华宝医疗ETF联接A', type: '医疗', amount: 245930.48, profit: -45158.77, profitRate: -15.51 },
-    { code: '501057', name: '汇添富中证新能源汽车产业指数(LOF)A', type: '新能源车', amount: 152036.19, profit: 50716.59, profitRate: 50.06 },
     { code: '163407', name: '兴全沪深300指数(LOF)A', type: '沪深300', amount: 92821.95, profit: 35240.94, profitRate: 61.20 },
     { code: '161725', name: '招商中证白酒指数(LOF)A', type: '白酒', amount: 16417.25, profit: -6116.24, profitRate: -27.14 },
   ],
@@ -362,18 +495,21 @@ const data = {
     { code: '510300', name: '沪深300ETF', shares: 39700, price: 4.936, amount: 195959.20, profit: 84308.95, profitRate: 75.51 },
     { code: '161725', name: '白酒基金LOF', shares: 276900, price: 0.575, amount: 159217.50, profit: -14861.94, profitRate: -8.54 },
     { code: '510500', name: '中证500ETF', shares: 12089, price: 8.406, amount: 101620.13, profit: 55445.19, profitRate: 120.08 },
-    { code: '515000', name: '信息技术ETF', shares: 44200, price: 1.172, amount: 51802.40, profit: 70089.29, profitRate: 383.28 },
+    { code: '512480', name: '半导体ETF', shares: 0, price: 2.101, amount: 0, profit: 0, profitRate: 0 },
+    { code: '515880', name: '通信ETF', shares: 0, price: 1.731, amount: 0, profit: 0, profitRate: 0 },
+    { code: '159939', name: '广发信息技术ETF', shares: 44200, price: 1.172, amount: 51802.40, profit: 70089.29, profitRate: 383.28 },
     { code: '511880', name: '银华日利ETF', shares: 300, price: 100.488, amount: 30146.40, profit: 23.00, profitRate: 0.08 },
     { code: '600089', name: '特变电工', shares: 200, price: 26.120, amount: 5224.00, profit: -790.58, profitRate: -13.14 },
   ],
-  douTotal: parseFloat(localStorage.getItem('portfolio_douTotal') || '1278618.04') || 1278618.04,
-  zeTotal: parseFloat(localStorage.getItem('portfolio_zeTotal') || '532240.37') || 532240.37,
-  initialSnapshots: {},
+  douTotal: parseFloat(localStorage.getItem('portfolio_douTotal')) || 0,
+  zeTotal: parseFloat(localStorage.getItem('portfolio_zeTotal')) || 0,
+
   clearedAdjustments: {
-    '513050': { name: '中概互联网ETF', amount: 91428 },
-    '162412': { name: '华宝医疗ETF联接A', amount: 26000 },
+    '513050': { name: '中概互联网ETF', amount: -91400 },
+    '162412': { name: '华宝医疗ETF联接A', amount: -20000 },
+    '161725': { name: '招商中证白酒指数(LOF)A', amount: -33000 },
   },
-  fundTypeMapping: { '创业板+新能源': ['159915','501057'], '300': ['510300','163407'], '白酒': ['161725'], '医药': ['162412'], '中概互联': ['513050'], '信息+500': ['510500','515000'], '现金': ['511880'] },
+  fundTypeMapping: { '创业板': ['159915'], '300': ['510300','163407'], '500': ['510500'], '白酒': ['161725'], '医药': ['162412'], '中概互联': ['513050'], '纯AI': ['512480','515880','159939','515000'], '现金': ['511880'] },
   fundHoldings: {
     // 华宝医疗ETF联接A 2026Q1 (底层跟踪中证医疗指数, 数据来源:天天基金512170)
     '162412': [
@@ -388,18 +524,31 @@ const data = {
       { code: '002821', name: '凯莱英', ratio: 2.84 },
       { code: '002223', name: '鱼跃医疗', ratio: 2.62 },
     ],
-    // 汇添富中证新能源汽车产业指数 2026Q1 (数据来源:天天基金501057)
-    '501057': [
-      { code: '002594', name: '比亚迪', ratio: 10.06 },
-      { code: '300750', name: '宁德时代', ratio: 9.45 },
-      { code: '300124', name: '汇川技术', ratio: 6.26 },
-      { code: '002050', name: '三花智控', ratio: 4.71 },
-      { code: '603799', name: '华友钴业', ratio: 4.41 },
-      { code: '002460', name: '赣锋锂业', ratio: 4.38 },
-      { code: '300014', name: '亿纬锂能', ratio: 3.83 },
-      { code: '002709', name: '天赐材料', ratio: 3.05 },
-      { code: '002466', name: '天齐锂业', ratio: 2.84 },
-      { code: '002738', name: '中矿资源', ratio: 2.65 },
+    // 半导体ETF 2026Q1 (数据来源:天天基金512480)
+    '512480': [
+      { code: '688256', name: '寒武纪【AI芯片】', ratio: 6.64 },
+      { code: '688041', name: '海光信息【AI芯片】', ratio: 6.24 },
+      { code: '002371', name: '北方华创【半导体设备(综合)】', ratio: 6.19 },
+      { code: '688981', name: '中芯国际【晶圆制造】', ratio: 6.01 },
+      { code: '603986', name: '兆易创新【存储芯片】', ratio: 5.08 },
+      { code: '688008', name: '澜起科技【存储芯片】', ratio: 4.58 },
+      { code: '688012', name: '中微公司【半导体设备(刻蚀)】', ratio: 4.29 },
+      { code: '603501', name: '豪威集团【芯片设计(CIS)】', ratio: 2.57 },
+      { code: '688521', name: '芯原股份【芯片设计(IP)】', ratio: 2.38 },
+      { code: '688525', name: '佰维存储【存储芯片】', ratio: 2.21 },
+    ],
+    // 通信ETF 2025Q4 (数据来源:天天基金515880)
+    '515880': [
+      { code: '300308', name: '中际旭创【光互联与光模块】', ratio: 15.20 },
+      { code: '300502', name: '新易盛【光互联与光模块】', ratio: 15.14 },
+      { code: '601138', name: '工业富联【AI服务器】', ratio: 13.08 },
+      { code: '000063', name: '中兴通讯【光互联与光模块】', ratio: 6.48 },
+      { code: '300394', name: '天孚通信【光互联与光模块】', ratio: 4.94 },
+      { code: '300136', name: '信维通信【消费电子】', ratio: 3.19 },
+      { code: '600522', name: '中天科技【光通信材料】', ratio: 2.63 },
+      { code: '600487', name: '亨通光电【光通信材料(光纤光缆)】', ratio: 2.59 },
+      { code: '688036', name: '传音控股【消费电子】', ratio: 2.02 },
+      { code: '603083', name: '剑桥科技【光互联与光模块】', ratio: 1.96 },
     ],
     // 招商中证白酒指数 2026Q1 (数据来源:天天基金161725)
     '161725': [
@@ -417,12 +566,12 @@ const data = {
     // 创业板ETF 2026Q1 (数据来源:天天基金159915)
     '159915': [
       { code: '300750', name: '宁德时代', ratio: 19.69 },
-      { code: '300308', name: '中际旭创', ratio: 9.30 },
-      { code: '300502', name: '新易盛', ratio: 7.53 },
+      { code: '300308', name: '中际旭创【光互联与光模块】', ratio: 9.30 },
+      { code: '300502', name: '新易盛【光互联与光模块】', ratio: 7.53 },
       { code: '300059', name: '东方财富', ratio: 4.64 },
       { code: '300274', name: '阳光电源', ratio: 4.27 },
-      { code: '300476', name: '胜宏科技', ratio: 2.92 },
-      { code: '300394', name: '天孚通信', ratio: 2.55 },
+      { code: '300476', name: '胜宏科技【PCB与封装基板】', ratio: 2.92 },
+      { code: '300394', name: '天孚通信【光互联与光模块】', ratio: 2.55 },
       { code: '300124', name: '汇川技术', ratio: 2.52 },
       { code: '300760', name: '迈瑞医疗', ratio: 1.91 },
       { code: '300498', name: '温氏股份', ratio: 1.76 },
@@ -444,40 +593,53 @@ const data = {
     '510300': [
       { code: '300750', name: '宁德时代', ratio: 4.27 },
       { code: '600519', name: '贵州茅台', ratio: 3.65 },
-      { code: '300308', name: '中际旭创', ratio: 2.55 },
+      { code: '300308', name: '中际旭创【光互联与光模块】', ratio: 2.55 },
       { code: '601318', name: '中国平安', ratio: 2.44 },
       { code: '601899', name: '紫金矿业', ratio: 2.17 },
       { code: '600036', name: '招商银行', ratio: 1.96 },
-      { code: '300502', name: '新易盛', ratio: 1.77 },
+      { code: '300502', name: '新易盛【光互联与光模块】', ratio: 1.77 },
       { code: '000333', name: '美的集团', ratio: 1.51 },
       { code: '600900', name: '长江电力', ratio: 1.33 },
       { code: '601166', name: '兴业银行', ratio: 1.28 },
     ],
     // 中证500ETF 2026Q1 (数据来源:新浪财经/天天基金季报)
     '510500': [
-      { code: '600487', name: '亨通光电', ratio: 1.05 },
+      { code: '600487', name: '亨通光电【光通信材料(光纤光缆)】', ratio: 1.05 },
       { code: '600988', name: '赤峰黄金', ratio: 0.73 },
-      { code: '688525', name: '佰维存储', ratio: 0.69 },
+      { code: '688525', name: '佰维存储【存储芯片】', ratio: 0.69 },
       { code: '002202', name: '金风科技', ratio: 0.64 },
-      { code: '300136', name: '信维通信', ratio: 0.63 },
+      { code: '300136', name: '信维通信【消费电子】', ratio: 0.63 },
       { code: '600549', name: '厦门钨业', ratio: 0.62 },
       { code: '002353', name: '杰瑞股份', ratio: 0.60 },
       { code: '600879', name: '航天电子', ratio: 0.59 },
       { code: '000426', name: '兴业银锡', ratio: 0.57 },
-      { code: '300604', name: '长川科技', ratio: 0.55 },
+      { code: '300604', name: '长川科技【半导体设备(测试)】', ratio: 0.55 },
     ],
-    // 科技ETF华宝 2026Q1 (数据来源:天天基金515000)
+    // 广发信息技术ETF 2026Q1 (数据来源:天天基金159939)
+    '159939': [
+      { code: '002475', name: '立讯精密【消费电子】', ratio: 3.82 },
+      { code: '601138', name: '工业富联【AI服务器】', ratio: 3.11 },
+      { code: '002371', name: '北方华创【半导体设备(综合)】', ratio: 2.96 },
+      { code: '688041', name: '海光信息【AI芯片】', ratio: 2.95 },
+      { code: '688981', name: '中芯国际【晶圆制造】', ratio: 2.87 },
+      { code: '688256', name: '寒武纪【AI芯片】', ratio: 2.76 },
+      { code: '603986', name: '兆易创新【存储芯片】', ratio: 2.46 },
+      { code: '300476', name: '胜宏科技【PCB与封装基板】', ratio: 2.31 },
+      { code: '688008', name: '澜起科技【存储芯片】', ratio: 2.17 },
+      { code: '000725', name: '京东方A【玻璃基封装载板】', ratio: 2.17 },
+    ],
+    // 信息技术ETF 515000（同 159939 跟踪中证信息技术指数，数据来源:天天基金159939）
     '515000': [
-      { code: '300308', name: '中际旭创', ratio: 10.24 },
-      { code: '300502', name: '新易盛', ratio: 9.23 },
-      { code: '600276', name: '恒瑞医药', ratio: 5.16 },
-      { code: '603259', name: '药明康德', ratio: 5.08 },
-      { code: '688041', name: '海光信息', ratio: 4.08 },
-      { code: '002371', name: '北方华创', ratio: 4.03 },
-      { code: '688981', name: '中芯国际', ratio: 3.94 },
-      { code: '603986', name: '兆易创新', ratio: 3.31 },
-      { code: '300476', name: '胜宏科技', ratio: 3.23 },
-      { code: '000725', name: '京东方A', ratio: 3.01 },
+      { code: '002475', name: '立讯精密【消费电子】', ratio: 3.82 },
+      { code: '601138', name: '工业富联【AI服务器】', ratio: 3.11 },
+      { code: '002371', name: '北方华创【半导体设备(综合)】', ratio: 2.96 },
+      { code: '688041', name: '海光信息【AI芯片】', ratio: 2.95 },
+      { code: '688981', name: '中芯国际【晶圆制造】', ratio: 2.87 },
+      { code: '688256', name: '寒武纪【AI芯片】', ratio: 2.76 },
+      { code: '603986', name: '兆易创新【存储芯片】', ratio: 2.46 },
+      { code: '300476', name: '胜宏科技【PCB与封装基板】', ratio: 2.31 },
+      { code: '688008', name: '澜起科技【存储芯片】', ratio: 2.17 },
+      { code: '000725', name: '京东方A【玻璃基封装载板】', ratio: 2.17 },
     ],
     // 兴全沪深300指数增强 2026Q1 (数据来源:天天基金163407)
     '163407': [
@@ -487,24 +649,201 @@ const data = {
       { code: '600519', name: '贵州茅台', ratio: 3.85 },
       { code: '601888', name: '中国中免', ratio: 3.74 },
       { code: '000895', name: '双汇发展', ratio: 3.54 },
-      { code: '601138', name: '工业富联', ratio: 3.32 },
+      { code: '601138', name: '工业富联【AI服务器】', ratio: 3.32 },
       { code: '601009', name: '南京银行', ratio: 3.23 },
-      { code: '000100', name: 'TCL科技', ratio: 2.87 },
+      { code: '000100', name: 'TCL科技【显示面板】', ratio: 2.87 },
       { code: '601088', name: '中国神华', ratio: 2.13 },
+    ],
+    // 银华日利ETF 511880（现金管理货币ETF，无股票持仓）
+    '511880': [
     ],
   },
 };
+// 硬编码类型映射（从 fundTypeMapping 自动生成，AI 不做类型判断）
+var HARDCODED_TYPE_MAP = {};
+(function() {
+  Object.entries(data.fundTypeMapping).forEach(function(entry) {
+    var cat = entry[0];
+    var codes = entry[1];
+    codes.forEach(function(c) { HARDCODED_TYPE_MAP[c] = cat; });
+  });
+})();
+
+// 基金名称到代码的映射（用于修复 AI 误识别）
+var FUND_NAME_TO_CODE = {
+  // 场内ETF/LOF基金
+  '中概互联ETF': '513050', '中概互联': '513050', '513050': '513050',
+  '沪深300ETF': '510300', '沪深300': '510300', '300': '510300', '510300': '510300',
+  '白酒基金LOF': '161725', '白酒': '161725', '161725': '161725',
+  '华宝医疗ETF联接A': '162412', '医疗ETF': '162412', '医药': '162412', '162412': '162412',
+  '创业板ETF': '159915', '创业板': '159915', '159915': '159915',
+  '中证500ETF': '510500', '中证500': '510500', '510500': '510500',
+  '科技ETF': '159939', '信息技术ETF': '159939', '159939': '159939',
+  '银华日利': '511880', '货币ETF': '511880', '511880': '511880',
+  '医疗ETF': '512170', '512170': '512170',
+  '红利ETF': '510880', '510880': '510880',
+  '证券ETF': '512880', '512880': '512880',
+  '军工ETF': '512660', '512660': '512660',
+  '新能源ETF': '516160', '516160': '516160',
+  '光伏ETF': '515790', '515790': '515790',
+  '半导体ETF': '512480', '512480': '512480',
+  '通信ETF': '515880', '515880': '515880',
+  '芯片ETF': '512760', '512760': '512760',
+  '消费ETF': '516130', '516130': '516130',
+  '医药ETF': '512010', '512010': '512010',
+  '银行ETF': '512800', '512800': '512800',
+  '券商ETF': '512000', '512000': '512000',
+  '煤炭ETF': '515220', '515220': '515220',
+  '钢铁ETF': '515210', '515210': '515210',
+  '有色ETF': '512400', '512400': '512400',
+  '农业ETF': '516550', '516550': '516550',
+  '环保ETF': '512580', '512580': '512580',
+  '碳中和ETF': '516070', '516070': '516070',
+  '基建ETF': '516950', '516950': '516950',
+  '智能制造ETF': '516800', '516800': '516800',
+  '云计算ETF': '516510', '516510': '516510',
+  '人工智能ETF': '515070', '515070': '515070',
+  '物联网ETF': '516260', '516260': '516260',
+  '大数据ETF': '516700', '516700': '516700',
+  '稀土ETF': '516780', '516780': '516780',
+  '锂电池ETF': '516790', '516790': '516790',
+  '新能源车ETF': '515030', '515030': '515030',
+  '光伏产业ETF': '516880', '516880': '516880',
+  '恒生科技ETF': '513130', '恒生科技': '513130', '513130': '513130',
+  '黄金ETF': '518880', '518880': '518880',
+  '原油ETF': '162411', '162411': '162411',
+  '国债ETF': '511010', '511010': '511010',
+  '可转债ETF': '511380', '511380': '511380',
+  // 港股ETF
+  '香港证券ETF': '513090', '513090': '513090',
+  '港股通ETF': '513030', '513030': '513030',
+  '恒生医疗ETF': '513060', '513060': '513060',
+  '恒生中国企业ETF': '513800', '513800': '513800',
+  '中证港股通科技ETF': '513160', '513160': '513160',
+  // 美股ETF
+  '纳斯达克ETF': '513100', '513100': '513100',
+  '标普500ETF': '513500', '513500': '513500',
+  // 热门ETF
+  '油气ETF': '159607', '159607': '159607',
+  '港股通医药ETF': '513700', '513700': '513700',
+  '港股通科技ETF': '513580', '513580': '513580',
+  '中证畜牧ETF': '516670', '516670': '516670',
+  '豆粕ETF': '169103', '169103': '169103',
+  '能源ETF': '159945', '159945': '159945',
+  '食品ETF': '515710', '515710': '515710',
+  '家电ETF': '159996', '159996': '159996',
+  '机械ETF': '159886', '159886': '159886',
+  '化工ETF': '516060', '516060': '516060',
+  '物流ETF': '516910', '516910': '516910',
+  '教育ETF': '513360', '513360': '513360',
+  '地产ETF': '512200', '512200': '512200',
+  '汽车ETF': '516110', '516110': '516110',
+  '有色金属ETF': '159876', '159876': '159876',
+  '家电ETF': '159996', '159996': '159996',
+  '酒ETF': '512690', '512690': '512690',
+  '中证红利ETF': '515080', '515080': '515080',
+  // 宽基ETF
+  '上证50ETF': '510050', '510050': '510050',
+  '科创50ETF': '588000', '588000': '588000',
+  '科创板ETF': '588050', '588050': '588050',
+  '双创50ETF': '159781', '159781': '159781',
+  // 异名映射（常见别称）
+  '纳指ETF': '513100', '纳指': '513100',
+  '中概ETf': '513050', '中概互联ETf': '513050',
+  '300ETF': '510300',
+  '500ETF': '510500',
+  '创业板ETf': '159915',
+  '医疗ETf': '512170',
+  '消费ETf': '516130'
+};
+
+// 从 data.funds 中补充更多基金名称映射
+if (data.funds) {
+  data.funds.forEach(function(f) {
+    if (f.name && f.code) {
+      FUND_NAME_TO_CODE[f.name] = f.code;
+      // 去ETF/LOF后缀的版本
+      if (f.name.endsWith('ETF')) FUND_NAME_TO_CODE[f.name.slice(0, -3)] = f.code;
+      if (f.name.endsWith('LOF')) FUND_NAME_TO_CODE[f.name.slice(0, -3)] = f.code;
+    }
+  });
+}
+
+// 硬编码合并映射（哪些基金代码应合并计算）
+data.fundMergeMapping = { '163407': '510300' };
+
+// 硬编码类型合并映射（统一显示类别名）
+data.typeMergeMapping = {};
+
+// 已知基金代码白名单（所有 ETF/LOF 基金，用于分类纠正和校验）
+var KNOWN_FUND_CODES = {};
+Object.keys(data.fundHoldings).forEach(function(c) { KNOWN_FUND_CODES[c] = true; });
+Object.values(data.fundTypeMapping).forEach(function(codes) {
+  codes.forEach(function(c) { KNOWN_FUND_CODES[c] = true; });
+});
+
+// ETF纠正：将 fundHoldings 中定义的 ETF 从 stocks 移入 funds（3处共用）
+function correctETFClassification(funds, stocks) {
+  var etfFromStocks = [];
+  var newStocks = stocks.filter(function(s) {
+    if (KNOWN_FUND_CODES[s.code]) {
+      etfFromStocks.push(s);
+      return false;
+    }
+    return true;
+  }).map(function(s) {
+    // 深复制个股对象，避免修改原始数据
+    return { code: s.code, name: s.name, type: s.type, amount: s.amount, profit: s.profit, profitRate: s.profitRate };
+  });
+  // 深复制 funds 对象，避免修改原始数据
+  var newFunds = funds.map(function(f) {
+    return { code: f.code, name: f.name, type: f.type, amount: f.amount, profit: f.profit, profitRate: f.profitRate };
+  });
+  etfFromStocks.forEach(function(etf) {
+    var existing = newFunds.find(function(f) { return f.code === etf.code; });
+    if (!existing) {
+      newFunds.push({
+        code: etf.code, name: etf.name,
+        type: HARDCODED_TYPE_MAP[etf.code] || 'ETF',
+        amount: etf.amount || 0, profit: etf.profit || 0,
+        profitRate: etf.profitRate || 0
+      });
+    } else {
+      existing.amount += (etf.amount || 0);
+      existing.profit = (existing.profit || 0) + (etf.profit || 0);
+    }
+  });
+  return { funds: newFunds, stocks: newStocks };
+}
+
+// 去重合并添加项（持仓统计 + 历史明细共用）
+function addItem(merged, code, name, amount, origProfit, adjProfit, mergeMap) {
+  var targetCode = mergeMap[code] || code;
+  var isMergedCode = (mergeMap[code] !== undefined);
+  if (!merged[targetCode]) merged[targetCode] = { code: targetCode, name: name, amount: 0, profit: 0, origCost: 0 };
+  var m = merged[targetCode];
+  amount = amount || 0;
+  origProfit = origProfit || 0;
+  adjProfit = adjProfit || 0;
+  if (m.origCost > 0 && !isMergedCode) {
+    m.amount = Math.max(m.amount, amount);
+  } else {
+    m.amount += amount;
+  }
+  m.profit += adjProfit;
+  m.origCost += (amount - origProfit);
+}
+
 
 // ====== 计算函数 ======
 function calcSummaries() {
-  const total = data.douTotal + data.zeTotal;
+  const total = (data.douTotal + data.zeTotal) || 1;
   const tmap = {};
   Object.entries(data.fundTypeMapping).forEach(([t, codes]) => codes.forEach(c => tmap[c]=t));
-  const typeMergeMap = { '沪深300': '300', '新能源车': '创业板+新能源' }; // 合并类型映射
   const cmap = {};
   data.funds.forEach(f => {
     let cat = tmap[f.code] || f.type;
-    cat = typeMergeMap[cat] || cat; // 如果有合并映射，使用合并后的类型
+    cat = data.typeMergeMapping[cat] || cat;
     if (!cmap[cat]) cmap[cat] = { amount:0, codes:[] };
     cmap[cat].amount += f.amount;
     cmap[cat].codes.push(f.code);
@@ -514,13 +853,19 @@ function calcSummaries() {
 }
 
 function calcConcentration() {
-  const total = data.douTotal + data.zeTotal;
+  const total = (data.douTotal + data.zeTotal) || 1;
   const fmap = {};
+  // 先构建基金 map（ETF/LOF 已通过 correctETFClassification 合并）
   data.funds.forEach(f => {
+    if (f.code === '511880') return;  // 排除货币ETF
     if (!fmap[f.code]) fmap[f.code] = { name: f.name, amount: 0 };
     fmap[f.code].amount += f.amount;
   });
+  // stocks 中只剩真实个股：同一代码出现多次时金额累加（如同一股票被AI识别出多条记录）
   data.stocks.forEach(s => {
+    if (s.code === '511880') return;  // 排除货币ETF
+    if ((s.code || '').startsWith('OTHER_')) return;  // 过滤AI幻觉股票
+    if (/ETF|LOF|指数|联接|货币/.test(s.name || '')) return;  // 双重保险
     if (!fmap[s.code]) fmap[s.code] = { name: s.name, amount: 0 };
     fmap[s.code].amount += s.amount;
   });
@@ -566,17 +911,17 @@ function calcConcentration() {
   return result;
 }
 
-function fmt(n) { return n.toLocaleString('zh-CN', { minFrac:2, maxFrac:2 }); }
+function fmt(n) { return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 function fmtRatio(n) { return n.toFixed(2) + '%'; }
 
 function getAdjusted(code, amount, profit, profitRate) {
   const adj = data.clearedAdjustments[code];
-  if (!adj) return { profit, profitRate };
-  const newProfit = profit - adj.amount;
-  const cost = amount - profit;
+  if (!adj || !adj.amount) return { profit: profit || 0, profitRate: profitRate || 0 };
+  const newProfit = (profit || 0) + (adj.amount || 0);
+  const cost = (amount || 0) - (profit || 0);
   const newRate = cost > 0 ? (newProfit / cost) * 100 : 0;
-  return { profit: newProfit, profitRate: newRate };
+  return { profit: newProfit || 0, profitRate: isNaN(newRate) ? 0 : newRate };
 }
 
 // ====== Canvas 图表 ======
@@ -728,23 +1073,28 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function render() {
+async function render() {
   try {
+    var _renderT0 = performance.now();
     const route = getRoute();
     const content = document.getElementById('content');
+
+    try { clientLog('INFO', 'audit', 'Page view: ' + route); } catch(ex) {}
     
     document.querySelectorAll('.sidebar nav a').forEach(a => {
       const href = a.getAttribute('href').replace('#', '') || '/';
       a.classList.toggle('active', route === href);
     });
 
-    if (route === '/history/overview') renderHistoryOverview(content);
-    else if (route === '/history/detail') renderHistoryDetail(content);
+    if (route === '/history/overview') await renderHistoryOverview(content);
+    else if (route === '/history/detail' || route === '/') await renderHistoryDetail(content);
     else if (route === '/entry') renderDataEntry(content);
-    else renderPortfolio(content);
+    else await renderHistoryDetail(content);
     
     if (isPrivate()) applyPrivacyBlur();
+    try { logPerf('page_render_' + route, Math.round(performance.now() - _renderT0), {route: route}); } catch(ex) {}
   } catch(e) {
+    try { clientLog('ERROR', 'error', 'render() failed: ' + e.message, {stack: e.stack}); } catch(ex2) {}
     const content = document.getElementById('content');
     if (content) {
       content.innerHTML = '<div class="card" style="background:#fef2f2;border:1px solid #fecaca;text-align:center;padding:40px"><h3 style="color:#dc2626;margin-bottom:12px">页面加载异常</h3><p style="color:#71717a;font-size:14px;margin-bottom:16px">请刷新页面重试，如问题持续请检查数据完整性</p><button class="btn btn-primary" onclick="location.reload()">刷新页面</button><pre style="margin-top:16px;font-size:11px;color:#991b1b;background:#fff;padding:8px;border-radius:6px;text-align:left;max-height:200px;overflow:auto">' + e.message + '\\n\\n' + e.stack + '</pre></div>';
@@ -752,234 +1102,79 @@ function render() {
   }
 }
 
+// ====== 本金管理 ======
+function getPrincipalMap() {
+  try { return JSON.parse(localStorage.getItem('portfolio_principal') || '{}'); } catch(e) { return {}; }
+}
+function setPrincipal(dateStr, amount) {
+  var map = getPrincipalMap();
+  map[dateStr] = amount;
+  localStorage.setItem('portfolio_principal', JSON.stringify(map));
+}
+function getEffectivePrincipal(dateStr) {
+  var map = getPrincipalMap();
+  var dates = Object.keys(map).sort();
+  var result = 0;
+  for (var i = 0; i < dates.length; i++) {
+    if (dates[i] <= dateStr) result = map[dates[i]];
+    else break;
+  }
+  return result;
+}
+
 // ====== 数据录入页面 ======
 function renderDataEntry(container) {
+  var today = new Date().toISOString().slice(0, 10);
+  var todayPrincipal = getEffectivePrincipal(today);
+  var recentHistory = getPrincipalMap();
+  var recentDates = Object.keys(recentHistory).sort().reverse().slice(0, 5);
+  var historyHtml = '';
+  if (recentDates.length > 0) {
+    historyHtml = '<div style="margin-top:12px;font-size:12px;color:var(--text-secondary);text-align:left"><strong>最近记录：</strong><br>' +
+      recentDates.map(function(d) { return d + ' → ¥' + (recentHistory[d]/10000).toFixed(1) + '万'; }).join('&nbsp;|&nbsp;') + '</div>';
+  }
   container.innerHTML = `
     <div class="page-header"><h2>数据录入</h2></div>
     <div class="card" style="text-align:center;padding:32px">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5" style="margin-bottom:16px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <div class="card-title" style="margin-bottom:4px">当日上传图片解析数据</div>
-      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">上传今天的持仓明细截图和豆/泽总资产截图，AI 自动解析并更新当日持仓数据</p>
-      <button class="btn" style="background:var(--gold);color:var(--primary-dark);font-weight:600;font-size:16px;padding:12px 32px" onclick="openUploadPanel()">📸 开始上传</button>
-    </div>
-    <div class="card" style="text-align:center;padding:32px">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.5" style="margin-bottom:16px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <div class="card-title" style="margin-bottom:4px">历史上传图片解析数据</div>
-      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">补充历史日期的持仓截图，AI 解析后写入指定日期的历史快照</p>
-      <button class="btn" style="background:var(--primary);color:#fff;font-weight:600;font-size:16px;padding:12px 32px" onclick="openHistoryUploadPanel()">🕐 开始上传</button>
+      <div class="card-title" style="margin-bottom:4px">上传图片解析数据</div>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:16px">上传持仓截图，选择指定日期，AI 解析后写入当天的历史快照</p>
+      <button class="btn" style="background:var(--primary);color:#fff;font-weight:600;font-size:16px;padding:12px 32px" onclick="openHistoryUploadPanel()">📸 开始上传</button>
     </div>
-    <div class="alert alert-info">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-      <div>
-        <h4>使用说明</h4>
-        <p style="margin-top:4px">上传持仓详情截图（含代码/名称/金额/收益/收益率列的表格）+ 豆账户总资产截图 + 泽账户总资产截图，AI 会自动识别并提取数据。支持多选，一次上传多张图片。</p>
-        <p id="parsingModelLabel" style="margin-top:4px;font-size:12px;color:#64748b">解析使用 qwen-vl-max（百炼多模态），代理/直连双模式</p>
+    <div class="card" style="text-align:center;padding:24px">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5" style="margin-bottom:16px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2"/></svg>
+      <div class="card-title" style="margin-bottom:4px">本金设置</div>
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">设置当日本金，该日期及之后日期的本金均使用此值（直到下次修改）</p>
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
+        <input type="date" id="principalDate" value="${today}" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;max-width:160px">
+        <input type="number" id="principalAmount" value="${todayPrincipal || ''}" placeholder="本金金额" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;max-width:200px" step="10000">
+        <button class="btn" style="background:var(--gold);color:var(--primary-dark);font-weight:600;font-size:16px;padding:12px 32px;flex-shrink:0" onclick="savePrincipal()">💰 保存本金</button>
       </div>
+      <div id="principalMsg" style="margin-top:8px;font-size:13px"></div>
+      ${historyHtml}
     </div>
+    <div style="padding:8px 10px;background:#f8f8fa;border-radius:6px;font-size:11px;color:var(--text-secondary);line-height:1.5">上传持仓截图 + 豆/泽总资产截图，AI 自动识别提取。支持多选。<br>解析模型：qwen-vl-max（百炼多模态）</div>
   `;
 }
 
-// ====== 持仓统计页面 ======
-function renderPortfolio(container) {
-  const totalFunds = data.funds.reduce((s,f) => s+f.amount, 0);
-  const cashStock = data.stocks.find(s => s.code === '511880');
-  const cashStockAmount = cashStock ? cashStock.amount : 0;
-  const totalStockVal = data.stocks.filter(s => s.code !== '511880').reduce((s,st) => s+st.amount, 0);
-  const total = data.douTotal + data.zeTotal;
-  const totalHoldings = totalFunds + totalStockVal;
-  const totalCash = Math.max(0, total - totalHoldings - cashStockAmount);
-
-  const stocks = calcConcentration();
-
-  const typeLookup = {};
-  Object.entries(data.fundTypeMapping).forEach(([cat, codes]) => {
-    codes.forEach(code => { typeLookup[code] = cat; });
-  });
-
-  const mergeMap = { '163407': '510300' };
-  const merged = {};
-  function addItem(code, name, amount, profit, profitRate) {
-    const targetCode = mergeMap[code] || code;
-    if (!merged[targetCode]) merged[targetCode] = { code: targetCode, name: name, amount: 0, profit: 0, profitRate: 0, count: 0 };
-    const m = merged[targetCode];
-    m.amount += amount;
-    m.profit += profit;
-    m.profitRate += profitRate;
-    m.count += 1;
-  }
-  data.funds.forEach(f => {
-    const adj = getAdjusted(f.code, f.amount, f.profit, f.profitRate);
-    addItem(f.code, f.name, f.amount, adj.profit, adj.profitRate);
-  });
-  data.stocks.forEach(s => {
-    if (s.code === '511880') return;
-    const adj = getAdjusted(s.code, s.amount, s.profit, s.profitRate);
-    addItem(s.code, s.name, s.amount, adj.profit, adj.profitRate);
-  });
-  Object.values(merged).forEach(m => { m.profitRate = m.profitRate / m.count; });
-  const allItems = Object.values(merged).sort((a, b) => b.amount - a.amount);
-
-  // 按类型汇总
-  const typeSummary = {};
-  const typeMergeMap = { '沪深300': '300', '新能源车': '创业板+新能源' }; // 合并类型映射
-  data.funds.forEach(f => {
-    let t = f.type || '其他';
-    t = typeMergeMap[t] || t; // 如果有合并映射，使用合并后的类型
-    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
-    typeSummary[t].amount += f.amount;
-    typeSummary[t].count += 1;
-  });
-  data.stocks.forEach(s => {
-    if (s.code === '511880') return;
-    let t = typeLookup[s.code] || '个股';
-    t = typeMergeMap[t] || t; // 如果有合并映射，使用合并后的类型
-    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
-    typeSummary[t].amount += s.amount;
-    typeSummary[t].count += 1;
-  });
-  const typeRows = Object.entries(typeSummary).sort((a, b) => b[1].amount - a[1].amount);
-
-  container.innerHTML = `
-    <div class="page-header" style="margin-bottom:12px">
-      <div class="dropdown" style="position:relative;display:inline-block">
-        <button onclick="toggleAccountDropdown()" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;hover:bg-gray-100">
-          <h2 style="margin:0">持仓统计</h2>
-          <svg id="dropdownArrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s">
-            <path d="M6 9l6 6 6-6"/>
-          </svg>
-        </button>
-        <div id="accountDropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);padding:8px;min-width:200px;z-index:100">
-          <div style="padding:6px 10px;border-bottom:1px solid var(--border)">
-            <div style="font-size:12px;color:var(--text-secondary)">合计资产</div>
-            <div class="mono" style="font-weight:700;color:var(--primary);font-size:16px">¥${(total/10000).toFixed(2)}万</div>
-          </div>
-          <div style="padding:6px 10px">
-            <div style="font-size:12px;color:var(--text-secondary)">豆的总资产</div>
-            <div class="mono" style="font-weight:600;font-size:14px">¥${(data.douTotal/10000).toFixed(2)}万</div>
-          </div>
-          <div style="padding:6px 10px">
-            <div style="font-size:12px;color:var(--text-secondary)">泽的总资产</div>
-            <div class="mono" style="font-weight:600;font-size:14px">¥${(data.zeTotal/10000).toFixed(2)}万</div>
-          </div>
-        </div>
-      </div>
-      <span class="mono" style="font-weight:700;color:var(--primary);font-size:18px">¥${(total/10000).toFixed(2)}万</span>
-    </div>
-
-    <div class="card">
-      <div class="card-title" style="margin-bottom:8px">按类型汇总</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${typeRows.map(([t, info]) => `<div style="flex:1;min-width:calc(50% - 6px);background:#f8faf8;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
-          <span class="tag tag-primary" style="flex-shrink:0">${t}</span>
-          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(info.amount/total*100)}</span>
-        </div>`).join('')}
-        <div style="flex:1;min-width:calc(50% - 6px);background:#f0faf4;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
-          <span class="tag" style="background:#f0faf4;color:var(--primary);flex-shrink:0">现金</span>
-          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(totalCash/total*100)}</span>
-        </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text-secondary)">
-        <span>合计 ${typeRows.length} 类 + 现金</span>
-        <span class="mono" style="font-weight:700;color:var(--text)">¥${(total/10000).toFixed(2)}万</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">持仓详情 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（共 ${allItems.length+1} 项）</span></div>
-      <div class="table-scroll"><table><thead><tr>
-        <th>名称</th><th class="text-right">持仓占比</th>
-        <th>代码</th>
-        <th class="text-right">持仓金额</th><th class="text-right">持仓收益</th><th class="text-right">收益率</th>
-        <th>类型</th>
-      </tr></thead><tbody>
-        ${allItems.map(item => {
-          const cat = typeLookup[item.code] || '个股';
-          const adjInfo = data.clearedAdjustments[item.code];
-          return `<tr>
-            <td><strong>${item.name}</strong></td>
-            <td class="text-right mono">${fmtRatio(item.amount/total*100)}</td>
-            <td class="mono">${item.code}</td>
-            <td class="text-right mono">¥${Math.round(item.amount).toLocaleString()}</td>
-            <td class="text-right mono ${item.profit>=0?'positive':'negative'}">¥${Math.round(item.profit).toLocaleString()}${adjInfo ? '<sup title="已清仓亏损已抵扣 ¥'+adjInfo.amount.toLocaleString()+'">!</sup>' : ''}</td>
-            <td class="text-right mono ${item.profitRate>=0?'positive':'negative'}">${item.profitRate>=0?'+':''}${Math.round(item.profitRate)}%</td>
-            <td><span class="tag tag-primary">${cat}</span></td>
-          </tr>`;
-        }).join('')}
-        <tr>
-          <td><strong>现金</strong></td>
-          <td class="text-right mono">${fmtRatio(totalCash/total*100)}</td>
-          <td class="mono" style="color:var(--text-secondary)">511880</td>
-          <td class="text-right mono">¥${Math.round(totalCash).toLocaleString()}</td>
-          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
-          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
-          <td><span class="tag" style="background:#f0faf4;color:var(--primary)">现金</span></td>
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr style="background:#f0faf4;font-weight:700">
-          <td colspan="2" class="mono">合计</td>
-          <td class="text-right mono">—</td>
-          <td class="text-right mono">¥${Math.round(total).toLocaleString()}</td>
-          <td class="text-right mono">—</td>
-          <td class="text-right mono">—</td>
-          <td class="text-right mono">—</td>
-        </tr>
-      </tfoot></table></div>
-    </div>
-
-    <div style="text-align:right;margin-bottom:8px">
-      <button class="btn btn-primary" onclick="toggleCalcLog()">🔍 查看详细计算过程</button>
-    </div>
-    <div id="calcLogPanel" style="display:none;margin-bottom:24px">
-      <div class="card" style="background:#f8fafc;font-family:monospace;font-size:12px;white-space:pre-wrap;line-height:1.6;max-height:600px;overflow:auto"></div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div class="card-title" style="margin-bottom:0">股票集中度排名</div>
-        <span style="font-size:13px;color:var(--text-secondary)">共 ${stocks.length} 只股票 &nbsp;|&nbsp; <span style="color:var(--text-secondary)">≥1% 的股票 ${stocks.filter(s => s.total >= 1).length} 只，占总资产 ${stocks.filter(s => s.total >= 1).reduce((sum, s) => sum + s.total, 0).toFixed(2)}%</span></span>
-      </div>
-      <div class="table-scroll"><table><thead><tr>
-        <th>排名</th><th>股票代码</th><th>股票名称</th>
-        <th class="text-right">总占比</th>
-        <th class="text-center">来源基金数</th><th>操作</th>
-      </tr></thead><tbody>
-        ${stocks.map((s, i) => {
-          return `<tr style="${s.total>=15?'background:#fef2f2':s.total>=10?'background:#fefce8':''}">
-            <td class="mono">${i+1}</td>
-            <td class="mono">${s.code}</td>
-            <td><strong>${s.name}</strong></td>
-            <td class="text-right mono" style="font-weight:600">${s.total.toFixed(2)}%</td>
-            <td class="text-center">${s.sources.length}</td>
-            <td><button class="expand-btn" onclick="toggleDetail('${s.code}')">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="arr-${s.code}"><path d="m6 9 6 6 6-6"/></svg>
-            </button></td>
-          </tr>
-          <tr id="detail-${s.code}" style="display:none">
-            <td colspan="6">
-              <div class="detail-content">
-                <strong style="font-size:13px;margin-bottom:8px;display:block">来源基金明细：</strong>
-                <table><thead><tr><th>基金代码</th><th>基金名称</th><th class="text-right">贡献占比</th></tr></thead><tbody>
-                  ${s.sources.map(src => `<tr><td class="mono">${src.fundCode}</td><td>${src.fundName}</td><td class="text-right mono">${src.ratio.toFixed(2)}%</td></tr>`).join('')}
-                </tbody></table>
-              </div>
-            </td>
-          </tr>`;
-        }).join('')}
-      </tbody></table></div>
-    </div>
-
-    <div class="alert alert-info">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-      <div>
-        <h4>分析说明</h4>
-        <p style="margin-top:4px">本页面汇总了您持有的所有基金中同一只股票的占比。通过跨基金合并计算，帮助您发现投资组合中是否存在股票集中度过高的风险。<br>
-        <strong>黄色预警：</strong>集中度 ≥ 10% | <strong style="color:#dc2626">红色预警：</strong>集中度 ≥ 15%</p>
-        <p style="margin-top:8px;font-size:12px;color:#64748b"><sup>*</sup> 已清仓亏损已在收益中扣除，收益率按调整后重新计算</p>
-      </div>
-    </div>
-  `;
+function savePrincipal() {
+  var dateEl = document.getElementById('principalDate');
+  var amtEl = document.getElementById('principalAmount');
+  var msgEl = document.getElementById('principalMsg');
+  if (!dateEl || !amtEl) return;
+  var dateStr = dateEl.value;
+  var amount = parseFloat(amtEl.value);
+  if (!dateStr) { msgEl.innerHTML = '<span style="color:#dc2626">请选择日期</span>'; return; }
+  if (!amount || amount <= 0) { msgEl.innerHTML = '<span style="color:#dc2626">请输入有效本金金额</span>'; return; }
+  setPrincipal(dateStr, amount);
+  msgEl.innerHTML = '<span style="color:#16a34a">✅ ' + dateStr + ' 本金已设置为 ¥' + amount.toLocaleString() + '（及之后日期同步生效）</span>';
+  // 刷新当前页面
+  setTimeout(function() {
+    var route = getRoute();
+    if (route === '/entry') render();
+  }, 500);
 }
+
 
 // Expand/collapse detail
 function toggleDetail(code) {
@@ -991,12 +1186,47 @@ function toggleDetail(code) {
   if (arrow) arrow.style.transform = show ? 'rotate(180deg)' : '';
 }
 
-// Utility functions
+// 详细计算过程（调试工具）
 function toggleCalcLog() {
   const panel = document.getElementById('calcLogPanel');
-  const content = panel.querySelector('.card');
-  if (panel.style.display === 'none') {
-    if (!content.textContent) content.textContent = window.__calcLog || '(正在计算...)';
+  if (!panel) return;
+  if (panel.style.display === 'none' || panel.style.display === '') {
+    var log = window.__calcLog || '';
+    if (!log) {
+      // 即时计算
+      var lines = [];
+      var total = (data.douTotal + data.zeTotal) || 1;
+      lines.push('=== 资产概览 ===');
+      lines.push('豆总资产: ¥' + (data.douTotal||0).toLocaleString());
+      lines.push('泽总资产: ¥' + (data.zeTotal||0).toLocaleString());
+      lines.push('总资产: ¥' + total.toLocaleString());
+      lines.push('');
+      lines.push('=== 持仓项目 ===');
+      var allRaw = (data.funds||[]).concat((data.stocks||[]).filter(function(s){return s.code!=='511880';}));
+      allRaw.sort(function(a,b){return (b.amount||0)-(a.amount||0);});
+      allRaw.forEach(function(item){
+        var pct = item.amount / total * 100;
+        lines.push(item.code + ' ' + item.name + ': ¥' + Math.round(item.amount||0).toLocaleString() + ' (' + pct.toFixed(2) + '%)');
+      });
+      lines.push('');
+      lines.push('=== 分类占比 ===');
+      var cmap = {};
+      var tmap = {};
+      Object.entries(data.fundTypeMapping).forEach(function(e){e[1].forEach(function(c){tmap[c]=e[0];});});
+      allRaw.forEach(function(item){
+        var cat = tmap[item.code] || (item.type||'其他');
+        cat = (data.typeMergeMapping||{})[cat] || cat;
+        if (!cmap[cat]) cmap[cat] = 0;
+        cmap[cat] += item.amount||0;
+      });
+      Object.entries(cmap).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
+        lines.push(e[0] + ': ¥' + Math.round(e[1]).toLocaleString() + ' (' + (e[1]/total*100).toFixed(2) + '%)');
+      });
+      log = lines.join('\n');
+      window.__calcLog = log;
+    }
+    var content = panel.querySelector('.card');
+    if (content) content.textContent = log;
     panel.style.display = 'block';
   } else {
     panel.style.display = 'none';
@@ -1033,7 +1263,8 @@ function applyPrivacyBlur() {
   const processed = new Set();
   let node;
   while (node = walker.nextNode()) {
-    if (/¥\s*\d/.test(node.textContent)) {
+    const text = node.textContent || '';
+    if (/¥/.test(text) || /\d.*%/.test(text) || /\d+万/.test(text)) {
       const p = node.parentElement;
       if (p && !processed.has(p)) {
         p.classList.add('privacy-sensitive');
@@ -1066,277 +1297,119 @@ function applySidebarCollapse() {
   document.querySelector('.sidebar').classList.toggle('collapsed', collapsed);
 }
 
-// ====== 图片管理 ======
-function getImageStore() {
-  try {
-    const store = localStorage.getItem('portfolio_images');
-    return store ? JSON.parse(store) : {};
-  } catch(e) {
-    return {};
-  }
-}
 
-function saveImageStore(store) {
-  localStorage.setItem('portfolio_images', JSON.stringify(store));
-}
 
-function getImagesForDate(dateStr) {
-  const store = getImageStore();
-  return store[dateStr] || [];
-}
+// ====== 数据加载（localStorage 优先，生产域名也可正常工作）======
+// 关键原则：localStorage 秒开，不阻塞页面渲染
+async function loadDataFromServer() {
+  // ===== 第一步：localStorage 优先（0ms，不阻塞） =====
+  var local = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  var localDates = Object.keys(local).sort();
+  var hasLocalData = localDates.length > 0 && localDates.some(function(d) {
+    return (local[d].douTotal || 0) >= 100000 || (local[d].zeTotal || 0) >= 100000;
+  });
 
-function saveImageForDate(dateStr, imageType, dataUrl, fileName) {
-  const store = getImageStore();
-  if (!store[dateStr]) store[dateStr] = [];
-  
-  // 查找并替换同类型的图片，或者添加新图片
-  const existingIndex = store[dateStr].findIndex(img => img.type === imageType);
-  const newImage = {
-    id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-    type: imageType,
-    dataUrl: dataUrl,
-    fileName: fileName,
-    uploadTime: new Date().toISOString(),
-    size: dataUrl.length
-  };
-  
-  if (existingIndex >= 0) {
-    store[dateStr][existingIndex] = newImage;
-  } else {
-    store[dateStr].push(newImage);
-  }
-  
-  saveImageStore(store);
-  return newImage;
-}
-
-function deleteImageForDate(dateStr, imageId) {
-  const store = getImageStore();
-  if (!store[dateStr]) return false;
-  
-  store[dateStr] = store[dateStr].filter(img => img.id !== imageId);
-  
-  if (store[dateStr].length === 0) {
-    delete store[dateStr];
-  }
-  
-  saveImageStore(store);
-  return true;
-}
-
-function exportImageAsFile(imageData) {
-  const byteString = atob(imageData.dataUrl.split(',')[1]);
-  const mimeString = imageData.dataUrl.split(',')[0].split(':')[1].split(';')[0];
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  const blob = new Blob([ab], { type: mimeString });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = imageData.fileName;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-const IMAGE_TYPES = [
-  { id: 'portfolio', label: '持仓明细', description: '持仓详情截图' },
-  { id: 'dou', label: '豆总资产', description: '豆账户总资产截图' },
-  { id: 'ze', label: '泽总资产', description: '泽账户总资产截图' }
-];
-
-function renderImageManager(container) {
-  const today = new Date().toISOString().slice(0, 10);
-  const dates = Object.keys(getImageStore()).sort().reverse();
-  
-  container.innerHTML = `
-    <div class="page-header">
-      <h2>数据来源图片管理</h2>
-    </div>
-    
-    <div class="card">
-      <div class="card-title">日期选择</div>
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <input type="date" id="imageDateSelect" value="${today}" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px" onchange="renderImageManagerView()">
-        <span style="color:var(--text-secondary);font-size:13px">共 ${dates.length} 天有图片数据</span>
-      </div>
-    </div>
-    
-    <div id="imageManagerView"></div>
-  `;
-  
-  renderImageManagerView();
-}
-
-function renderImageManagerView() {
-  const dateInput = document.getElementById('imageDateSelect');
-  const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
-  const images = getImagesForDate(dateStr);
-  const container = document.getElementById('imageManagerView');
-  
-  if (!container) return;
-  
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>${dateStr} 的数据来源图片</span>
-        <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">${images.length} 张图片</span>
-      </div>
-      
-      <div style="display:flex;flex-direction:column;gap:16px">
-        ${IMAGE_TYPES.map(type => {
-          const existingImage = images.find(img => img.type === type.id);
-          return `
-            <div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:${existingImage ? '#fafafa' : '#fff'}">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <div>
-                  <strong>${type.label}</strong>
-                  <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 0">${type.description}</p>
-                </div>
-                <div style="display:flex;gap:8px">
-                  ${existingImage ? `
-                    <button class="btn" style="padding:6px 12px;font-size:13px" onclick="showImagePreview('${existingImage.id}')">
-                      查看
-                    </button>
-                    <button class="btn" style="padding:6px 12px;font-size:13px" onclick="exportImage('${existingImage.id}')">
-                      导出
-                    </button>
-                    <button class="btn" style="padding:6px 12px;font-size:13px;background:#fef2f2;color:#dc2626;border-color:#fecaca" onclick="replaceImage('${type.id}', '${dateStr}')">
-                      替换
-                    </button>
-                    <button class="btn" style="padding:6px 12px;font-size:13px;background:#fef2f2;color:#dc2626;border-color:#fecaca" onclick="deleteImage('${existingImage.id}', '${dateStr}')">
-                      删除
-                    </button>
-                  ` : `
-                    <button class="btn btn-primary" style="padding:6px 12px;font-size:13px" onclick="uploadImage('${type.id}', '${dateStr}')">
-                      上传图片
-                    </button>
-                  `}
-                </div>
-              </div>
-              ${existingImage ? `
-                <div style="display:flex;gap:16px;align-items:center">
-                  <img src="${existingImage.dataUrl}" style="max-height:120px;border-radius:4px;border:1px solid var(--border)">
-                  <div style="flex:1;font-size:12px;color:var(--text-secondary)">
-                    <div><strong>文件名：</strong>${existingImage.fileName}</div>
-                    <div><strong>上传时间：</strong>${new Date(existingImage.uploadTime).toLocaleString('zh-CN')}</div>
-                    <div><strong>大小：</strong>${Math.round(existingImage.size / 1024)} KB</div>
-                  </div>
-                </div>
-              ` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  `;
-}
-
-function uploadImage(imageType, dateStr) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/*';
-  input.onchange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        saveImageForDate(dateStr, imageType, event.target.result, file.name);
-        renderImageManagerView();
-      };
-      reader.readAsDataURL(file);
+  if (hasLocalData) {
+    console.log('[加载] 使用本地数据（秒开）: ' + localDates.join(', '));
+    try { logData('load_local', {dates: localDates.length, latestDate: localDates[localDates.length-1], source: 'localStorage'}); } catch(ex) {}
+    cachedHistory = local;
+    lastLoadTime = Date.now();
+    var latestDate = localDates[localDates.length - 1];
+    var latestSnap = local[latestDate];
+    if (latestSnap) {
+      data.funds = latestSnap.funds || data.funds;
+      data.stocks = latestSnap.stocks || data.stocks;
+      data.douTotal = latestSnap.douTotal || data.douTotal;
+      data.zeTotal = latestSnap.zeTotal || data.zeTotal;
     }
-  };
-  input.click();
-}
+    var corrected = correctETFClassification(data.funds, data.stocks);
+    data.funds = corrected.funds;
+    data.stocks = corrected.stocks;
+    var el = document.getElementById('sidebarFooter');
+    if (el) el.textContent = '数据更新日期: ' + latestDate;
+    render();
+  }
 
-function replaceImage(imageType, dateStr) {
-  uploadImage(imageType, dateStr);
-}
+  // ===== 第二步：后台尝试服务器（完全非阻塞，setTimeout 0ms） =====
+  setTimeout(function() {
+    fetch('/api/data/load').then(function(res) {
+      if (!res.ok) return;
+      return res.json();
+    }).then(function(serverData) {
+      if (serverData && serverData.history && Object.keys(serverData.history).length > 0) {
+        console.log('[加载] 服务器有新数据');
+        cachedHistory = serverData.history;
+        try { localStorage.setItem('portfolio_history', JSON.stringify(cachedHistory)); } catch(e) {}
+        var serverDates = Object.keys(cachedHistory).sort();
+        var latestServerDate = serverDates[serverDates.length - 1];
+        var latestServerSnap = cachedHistory[latestServerDate];
+        if (latestServerSnap) {
+          data.funds = latestServerSnap.funds || data.funds;
+          data.stocks = latestServerSnap.stocks || data.stocks;
+          data.douTotal = latestServerSnap.douTotal || data.douTotal;
+          data.zeTotal = latestServerSnap.zeTotal || data.zeTotal;
+        }
+        var corrected2 = correctETFClassification(data.funds, data.stocks);
+        data.funds = corrected2.funds;
+        data.stocks = corrected2.stocks;
+        var el2 = document.getElementById('sidebarFooter');
+        if (el2) el2.textContent = '数据更新日期: ' + latestServerDate;
+        render();
+      }
+    }).catch(function() { /* 服务器不可用，已从本地渲染 */ });
+  }, 0);
 
-function deleteImage(imageId, dateStr) {
-  if (confirm('确定要删除这张图片吗？此操作不可恢复。')) {
-    deleteImageForDate(dateStr, imageId);
-    renderImageManagerView();
+  // 无本地数据时，阻塞等待服务器（首次加载）
+  if (!hasLocalData) {
+    try {
+      const serverRes = await fetch('/api/data/load');
+      if (serverRes.ok) {
+        var serverData = await serverRes.json();
+        if (serverData && serverData.history && Object.keys(serverData.history).length > 0) {
+          console.log('[加载] 服务器数据已加载');
+          cachedHistory = serverData.history;
+          try { localStorage.setItem('portfolio_history', JSON.stringify(cachedHistory)); } catch(e) {}
+          var svDates = Object.keys(cachedHistory).sort();
+          var svLatest = svDates[svDates.length - 1];
+          var svSnap = cachedHistory[svLatest];
+          if (svSnap) {
+            data.funds = svSnap.funds || data.funds;
+            data.stocks = svSnap.stocks || data.stocks;
+            data.douTotal = svSnap.douTotal || data.douTotal;
+            data.zeTotal = svSnap.zeTotal || data.zeTotal;
+          }
+          var corrected3 = correctETFClassification(data.funds, data.stocks);
+          data.funds = corrected3.funds;
+          data.stocks = corrected3.stocks;
+          var el3 = document.getElementById('sidebarFooter');
+          if (el3) el3.textContent = '数据更新日期: ' + svLatest;
+          render();
+          return;
+        }
+      }
+    } catch(e) { console.log('[加载] 服务器不可用'); }
+
+    // 服务器也不可用：用硬编码数据回退
+    console.log('[加载] 无数据源，使用硬编码默认值');
+    if (!data.douTotal || data.douTotal < 100) {
+      var estTotal = data.funds.reduce(function(s,f){return s+f.amount;},0) +
+                     data.stocks.reduce(function(s,st){return s+st.amount;},0);
+      data.douTotal = Math.round(estTotal * 0.45);
+      data.zeTotal = Math.round(estTotal * 0.55);
+    }
+    render();
   }
 }
 
-function showImagePreview(imageId) {
-  const dateInput = document.getElementById('imageDateSelect');
-  const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
-  const images = getImagesForDate(dateStr);
-  const image = images.find(img => img.id === imageId);
-  
-  if (!image) return;
-  
-  const overlay = document.createElement('div');
-  overlay.id = 'imagePreviewOverlay';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out';
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-  
-  const img = document.createElement('img');
-  img.src = image.dataUrl;
-  img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain';
-  img.onclick = (e) => e.stopPropagation();
-  
-  overlay.appendChild(img);
-  document.body.appendChild(overlay);
-}
 
-function exportImage(imageId) {
-  const dateInput = document.getElementById('imageDateSelect');
-  const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
-  const images = getImagesForDate(dateStr);
-  const image = images.find(img => img.id === imageId);
-  
-  if (image) {
-    exportImageAsFile(image);
-  }
-}
 
-// ====== 历史记录（localStorage存储） ======
-function saveHistorySnapshot(dateStr) {
-  if (!dateStr) dateStr = new Date().toISOString().slice(0, 10);
-  let history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
-  const images = getImagesForDate(dateStr);
-  history[dateStr] = {
-    funds: JSON.parse(JSON.stringify(data.funds)),
-    stocks: JSON.parse(JSON.stringify(data.stocks)),
-    douTotal: data.douTotal,
-    zeTotal: data.zeTotal,
-    snapshotDate: dateStr,
-    images: images.map(img => ({
-      id: img.id,
-      type: img.type,
-      dataUrl: img.dataUrl,
-      fileName: img.fileName,
-      uploadTime: img.uploadTime,
-      size: img.size
-    }))
-  };
-  localStorage.setItem('portfolio_history', JSON.stringify(history));
-  const el = document.getElementById('sidebarFooter');
-  if (el) el.textContent = '数据更新日期: ' + dateStr;
-}
 
-// 初始化时保存历史快照（每次都覆盖当天数据）
+
+// 初始化历史数据（不覆盖已有数据）
 function initHistory() {
   const today = new Date().toISOString().slice(0, 10);
   
-  // 用预置初始快照播种历史数据（如果缺少任何初始快照日期，补充进去）
   let history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
-  if (data.initialSnapshots) {
-    Object.keys(data.initialSnapshots).forEach(date => {
-      if (!history[date]) {
-        history[date] = data.initialSnapshots[date];
-      }
-    });
-    if (Object.keys(history).length > 0) {
-      localStorage.setItem('portfolio_history', JSON.stringify(history));
-    }
-  }
   
   // 若 localStorage 中没有 douTotal/zeTotal，从历史最近值带入
   if (!localStorage.getItem('portfolio_douTotal') || !localStorage.getItem('portfolio_zeTotal')) {
@@ -1355,23 +1428,37 @@ function initHistory() {
       }
     }
   }
-  
-  saveHistorySnapshot(today);
+
   // 更新侧边栏日期显示
-  history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
-  const dates = Object.keys(history).sort();
-  if (dates.length > 0) {
+  const allDates = Object.keys(history).sort();
+  if (allDates.length > 0) {
     const el = document.getElementById('sidebarFooter');
-    if (el) el.textContent = '数据更新日期: ' + dates[dates.length - 1];
+    if (el) el.textContent = '数据更新日期: ' + allDates[allDates.length - 1];
   }
 }
 
-function getHistoryDates() {
+// 全局历史数据缓存（优先服务器
+var cachedHistory = null;
+var lastLoadTime = 0;
+
+async function getHistoryDates() {
+  // 直接用内存缓存（页面加载时已初始化，切换页面不重新请求服务器）
+  if (cachedHistory) {
+    return Object.keys(cachedHistory).sort();
+  }
+  // 首次调用：从localStorage加载
   const history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
-  return Object.keys(history).sort().reverse();
+  cachedHistory = history;
+  lastLoadTime = Date.now();
+  return Object.keys(history).sort();
 }
 
-function loadSnapshot(dateStr) {
+async function loadSnapshot(dateStr) {
+  if (!cachedHistory) await getHistoryDates(); // 确保有数据
+  if (cachedHistory && cachedHistory[dateStr]) {
+    return cachedHistory[dateStr];
+  }
+  // 回退到本地
   const history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
   return history[dateStr] || null;
 }
@@ -1405,46 +1492,46 @@ function exportAllData() {
 
 function validateDataIntegrity() {
   const warnings = [];
-  if (!data.funds || !Array.isArray(data.funds) || data.funds.length === 0) {
-    warnings.push('场外基金数据为空');
-  }
-  if (!data.stocks || !Array.isArray(data.stocks) || data.stocks.length === 0) {
-    warnings.push('场内股票数据为空');
-  }
-  if (typeof data.douTotal !== 'number' || isNaN(data.douTotal) || data.douTotal <= 0) {
-    warnings.push('豆总资产数据异常：' + data.douTotal);
-  }
-  if (typeof data.zeTotal !== 'number' || isNaN(data.zeTotal) || data.zeTotal <= 0) {
-    warnings.push('泽总资产数据异常：' + data.zeTotal);
-  }
-  const has511880 = data.stocks.some(s => s.code === '511880');
-  if (!has511880) {
-    warnings.push('缺少银华日利(511880)持仓数据');
+  const hasDou = typeof data.douTotal === 'number' && !isNaN(data.douTotal) && data.douTotal > 0;
+  const hasZe = typeof data.zeTotal === 'number' && !isNaN(data.zeTotal) && data.zeTotal > 0;
+  if (!hasDou && !hasZe) {
+    warnings.push('暂无总资产数据，请先上传截图');
   }
   return warnings;
 }
 
 // ====== 历史概览页 ======
-function renderHistoryOverview(container) {
-  const dates = getHistoryDates();
+async function renderHistoryOverview(container) {
+  const dates = await getHistoryDates();
   if (dates.length === 0) {
     container.innerHTML = '<div class="page-header"><h2>历史概览</h2></div><div class="card"><p style="color:var(--text-secondary);text-align:center;padding:40px 0">暂无历史数据</p></div>';
     return;
   }
 
-  const snapshots = dates.map(d => {
-    const snap = loadSnapshot(d);
-    const totalFunds = snap.funds.reduce((s,f) => s+f.amount, 0);
+  const snapshots = [];
+  for (var i = 0; i < dates.length; i++) {
+    const d = dates[i];
+    const snap = await loadSnapshot(d);
+    if (!snap) continue;
+    const totalFunds = snap.funds.filter(f => f.code !== '511880').reduce((s,f) => s+f.amount, 0);
     const cashStock = snap.stocks.find(s => s.code === '511880');
     const cashStockAmt = cashStock ? cashStock.amount : 0;
     const totalStocks = snap.stocks.filter(s => s.code !== '511880').reduce((s,st) => s+st.amount, 0);
-    const douTotal = snap.douTotal || 1278618.04;
-    const zeTotal = snap.zeTotal || 532240.37;
+    const douTotal = snap.douTotal || 0;
+    const zeTotal = snap.zeTotal || 0;
     const total = douTotal + zeTotal;
     const totalHoldings = totalFunds + totalStocks;
-    const totalCash = Math.max(0, total - totalHoldings - cashStockAmt);
-    const totalProfit = snap.funds.reduce((s,f) => s+f.profit, 0) + snap.stocks.reduce((s,st) => s+st.profit, 0);
-    return { date: d, totalFunds, totalStocks, cashStockAmt, totalCash, total, totalProfit };});
+    const totalCash = total - totalHoldings;
+    const aiCodes = { '159915': true, '510500': true, '159939': true, '512480': true, '515880': true };
+    var allMerged = (snap.funds||[]).concat((snap.stocks||[]).filter(function(s){return s.code !== '511880';}));
+    var aiHoldings = allMerged.filter(function(i) { return aiCodes[i.code]; }).reduce(function(s, i) { return s + (i.amount || 0); }, 0);
+    var aiRatio = total > 0 ? aiHoldings / total * 100 : 0;
+    var holdingsRatio = total > 0 ? totalHoldings / total * 100 : 0;
+    var principal = getEffectivePrincipal(d);
+    var profitRatio = principal > 0 ? (total - principal) / principal * 100 : 0;
+    snapshots.push({ date: d, total: total, holdingsRatio: holdingsRatio, aiRatio: aiRatio, principal: principal, profitRatio: profitRatio });
+  }
+  const snapshotsDesc = snapshots.slice().reverse();
 
   container.innerHTML = `
     <div class="page-header"><h2>历史概览</h2></div>
@@ -1455,18 +1542,19 @@ function renderHistoryOverview(container) {
         <div id="trendEmptyMsg" style="${snapshots.length >= 2 ? 'display:none' : 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:14px'}">${snapshots.length === 0 ? '暂无历史数据，保存快照后趋势图将自动生成' : '需要至少2天数据才能生成趋势图，明天再来查看'}</div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-title">历史汇总 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（共 ${snapshots.length} 条记录）</span></div>
-      <div class="table-scroll"><table><thead><tr>
-        <th>日期</th><th class="text-right">总资产</th><th class="text-right">现金</th><th class="text-right">总收益</th>
+    <div class="card" style="padding:16px">
+      <div class="card-title" style="font-size:16px;margin-bottom:8px">历史汇总 <span style="font-size:12px;font-weight:400;color:var(--text-secondary)">（共 ${snapshotsDesc.length} 条记录）</span></div>
+      <table class="overview-table"><thead><tr>
+        <th>日期</th><th>总资产</th><th>盈利占比</th><th>总持仓</th><th title="AI占比 = 创业板ETF + 中证500ETF + 信息技术ETF + 半导体ETF + 通信ETF">AI占比</th>
       </tr></thead><tbody>
-        ${snapshots.map(s => `<tr>
-          <td class="mono">${s.date}</td>
-          <td class="text-right mono" style="font-weight:600">¥${(s.total/10000).toFixed(2)}万</td>
-          <td class="text-right mono">¥${fmt(s.totalCash)}</td>
-          <td class="text-right mono ${s.totalProfit>=0?'positive':'negative'}">¥${(s.totalProfit/10000).toFixed(2)}万</td>
+        ${snapshotsDesc.map(s => `<tr>
+          <td class="mono">${s.date.slice(5)}</td>
+          <td class="mono" style="font-weight:600;line-height:1.2">${(s.total/10000).toFixed(0)}万${s.principal > 0 ? '<br><span style="font-size:7px;color:var(--text-secondary);font-weight:300">本金' + (s.principal/10000).toFixed(0) + '万</span>' : ''}</td>
+          <td class="mono ${s.profitRatio >= 0 ? 'positive' : 'negative'}">${s.profitRatio >= 0 ? '+' : ''}${s.profitRatio.toFixed(0)}%</td>
+          <td class="mono">${s.holdingsRatio.toFixed(0)}%</td>
+          <td class="mono">${s.aiRatio.toFixed(0)}%</td>
         </tr>`).join('')}
-      </tbody></table></div>
+      </tbody></table>
     </div>
   `;
 
@@ -1536,28 +1624,32 @@ function renderHistoryOverview(container) {
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // 数据点 + 标签
+    // 数据点 + 标签（只显示首、尾、中间三个日期）
+    var midIdx = Math.floor((snapshots.length - 1) / 2);
     snapshots.forEach((s, i) => {
+      var showLabel = (i === 0 || i === snapshots.length - 1 || i === midIdx);
       const x = pad.l + i * gap;
       const y = pad.t + ch - ((s.total - minV) / range) * ch;
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fillStyle = '#8B2942';
       ctx.fill();
-      ctx.fillStyle = '#18181b';
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(s.date.slice(5), x, pad.t + ch + 8);
+      if (showLabel) {
+        ctx.fillStyle = '#18181b';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(s.date.slice(5), x, pad.t + ch + 8);
+      }
     });
     });
   }
 }
 
 // ====== 历史明细页 ======
-function renderHistoryDetail(container) {
-  const dates = getHistoryDates();
-  const selectedDate = dates[0] || '';
+async function renderHistoryDetail(container) {
+  const dates = await getHistoryDates();
+  const selectedDate = dates.length > 0 ? dates[dates.length - 1] : '';
 
   container.innerHTML = `
     <div class="page-header"><h2>历史明细</h2></div>
@@ -1575,97 +1667,131 @@ function renderHistoryDetail(container) {
   if (selectedDate) renderHistoryDetailView();
 }
 
-function renderHistoryDetailView() {
+async function renderHistoryDetailView() {
   const select = document.getElementById('historyDateSelect');
   if (!select) return;
   const dateStr = select.value;
-  const snap = loadSnapshot(dateStr);
+  const snap = await loadSnapshot(dateStr);
   if (!snap) return;
 
-  const totalFunds = snap.funds.reduce((s,f) => s+f.amount, 0);
+  const totalFunds = snap.funds.filter(f => f.code !== '511880').reduce((s,f) => s+f.amount, 0);
   const cashStock = snap.stocks.find(s => s.code === '511880');
   const cashStockAmt = cashStock ? cashStock.amount : 0;
   const totalStocks = snap.stocks.filter(s => s.code !== '511880').reduce((s,st) => s+st.amount, 0);
-  const douTotal = snap.douTotal || 1278618.04;
-  const zeTotal = snap.zeTotal || 532240.37;
-  const total = douTotal + zeTotal;
+  const douTotal = snap.douTotal || 0;
+  const zeTotal = snap.zeTotal || 0;
+  const total = (douTotal + zeTotal) || 1;
   const totalHoldings = totalFunds + totalStocks;
-  const totalCash = Math.max(0, total - totalHoldings - cashStockAmt);
+  const totalCash = total - totalHoldings;
   const totalProfit = snap.funds.reduce((s,f) => s+f.profit, 0) + snap.stocks.reduce((s,st) => s+st.profit, 0);
 
   const container = document.getElementById('historyDetailView');
+  if (!container) return;
 
   const typeLookup = {};
   Object.entries(data.fundTypeMapping).forEach(([cat, codes]) => {
     codes.forEach(code => { typeLookup[code] = cat; });
   });
 
-  const mergeMap = { '163407': '510300' };
-  const merged = {};
-  function addItem(code, name, amount, profit, profitRate) {
-    const targetCode = mergeMap[code] || code;
-    if (!merged[targetCode]) merged[targetCode] = { code: targetCode, name: name, amount: 0, profit: 0, profitRate: 0, count: 0 };
-    const m = merged[targetCode];
-    m.amount += amount;
-    m.profit += profit;
-    m.profitRate += profitRate;
-    m.count += 1;
-  }
-  snap.funds.forEach(f => {
-    const adj = getAdjusted(f.code, f.amount, f.profit, f.profitRate);
-    addItem(f.code, f.name, f.amount, adj.profit, adj.profitRate);
-  });
-  snap.stocks.forEach(s => {
-    if (s.code === '511880') return;
-    const adj = getAdjusted(s.code, s.amount, s.profit, s.profitRate);
-    addItem(s.code, s.name, s.amount, adj.profit, adj.profitRate);
-  });
-  Object.values(merged).forEach(m => { m.profitRate = m.profitRate / m.count; });
-  const allItems = Object.values(merged).sort((a, b) => b.amount - a.amount);
+  var corrected = correctETFClassification(snap.funds, snap.stocks);
+  var correctedFunds = corrected.funds;
+  var correctedStocks = corrected.stocks;
 
-  const typeMergeMap = { '沪深300': '300', '新能源车': '创业板+新能源' };
-  const typeSummary = {};
-  snap.funds.forEach(f => {
-    let t = f.type || '其他';
-    t = typeMergeMap[t] || t;
-    if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
-    typeSummary[t].amount += f.amount;
-    typeSummary[t].count += 1;
+  var mergeMap = data.fundMergeMapping;
+  const merged = {};
+  correctedFunds.forEach(function(f) {
+    if (f.code === '511880') return;
+    var adj = getAdjusted(f.code, f.amount, f.profit, f.profitRate);
+    addItem(merged, f.code, f.name, f.amount, f.profit, adj.profit, mergeMap);
   });
-  snap.stocks.forEach(s => {
+  correctedStocks.forEach(function(s) {
     if (s.code === '511880') return;
-    let t = typeLookup[s.code] || '个股';
-    t = typeMergeMap[t] || t;
+    var adj = getAdjusted(s.code, s.amount, s.profit, s.profitRate);
+    addItem(merged, s.code, s.name, s.amount, s.profit, adj.profit, mergeMap);
+  });
+  Object.values(merged).forEach(function(m) { m.profitRate = m.origCost > 0 ? m.profit / m.origCost * 100 : 0; });
+  // 不过滤：所有项目保留，无法识别的走 typeLookup → 归类到"其他"
+  var allItems = Object.values(merged).sort(function(a, b) { return b.amount - a.amount; });
+
+  // 按类型聚合持仓详情（同类ETF合并，只显示类型名）
+  var typeAgg = {};
+  allItems.forEach(function(item) {
+    var cat = typeLookup[item.code] || '其他';
+    if (!typeAgg[cat]) typeAgg[cat] = { amount: 0, profit: 0, origCost: 0 };
+    typeAgg[cat].amount += item.amount;
+    typeAgg[cat].profit += item.profit;
+    typeAgg[cat].origCost += item.origCost;
+  });
+  var typeRows2 = Object.entries(typeAgg).map(function(e) {
+    var cat = e[0], info = e[1];
+    var rate = info.origCost > 0 ? info.profit / info.origCost * 100 : 0;
+    return { cat: cat, amount: info.amount, profit: info.profit, rate: rate };
+  }).sort(function(a, b) { return b.amount - a.amount; });
+
+  var totalTypeProfit = typeRows2.reduce(function(s, t) { return s + t.profit; }, 0);
+  var totalTypeOrigCost = typeRows2.reduce(function(s, t) { return s + (typeAgg[t.cat] ? typeAgg[t.cat].origCost : 0); }, 0);
+  var totalTypeRate = totalTypeOrigCost > 0 ? totalTypeProfit / totalTypeOrigCost * 100 : 0;
+
+  const typeSummary = {};
+  // 预置所有分类为0
+  const ALL_CATEGORIES = ['创业板','300','500','白酒','医药','中概互联','纯AI','其他','现金'];
+  ALL_CATEGORIES.forEach(function(cat) { typeSummary[cat] = { amount: 0, count: 0 }; });
+  // 仅从 typeLookup 映射，忽略历史 type 字段（已过滤 OTHER_）
+  allItems.forEach(function(m) {
+    var t = typeLookup[m.code] || '其他';
     if (!typeSummary[t]) typeSummary[t] = { amount: 0, count: 0 };
-    typeSummary[t].amount += s.amount;
+    typeSummary[t].amount += m.amount;
     typeSummary[t].count += 1;
   });
-  const typeRows = Object.entries(typeSummary).sort((a, b) => b[1].amount - a[1].amount);
+  // 现金单独处理：金额 = 总资产 - 非现金持仓
+  typeSummary['现金'].amount = totalCash;
+  typeSummary['现金'].count = (totalCash > 0 ? 1 : 0);
+  const typeRows = ALL_CATEGORIES.filter(function(cat) { return cat !== '现金'; }).map(function(cat) {
+    return [cat, typeSummary[cat] || { amount: 0, count: 0 }];
+  }).sort(function(a, b) { return b[1].amount - a[1].amount; });
+  // 现金追加到最后
+  typeRows.push(['现金', typeSummary['现金']]);
 
   const fmap = {};
-  snap.funds.forEach(f => { if (!fmap[f.code]) fmap[f.code] = { name: f.name, amount: 0 }; fmap[f.code].amount += f.amount; });
-  snap.stocks.forEach(s => { if (!fmap[s.code]) fmap[s.code] = { name: s.name, amount: 0 }; fmap[s.code].amount += s.amount; });
+  correctedFunds.forEach(function(f) { if (!fmap[f.code]) fmap[f.code] = { name: f.name, amount: 0 }; fmap[f.code].amount += f.amount; });
+  // correctedStocks 中只剩真实个股（ETF/LOF 已被 correctETFClassification 移走）：同一代码金额累加
+  correctedStocks.forEach(function(s) { if (!fmap[s.code]) fmap[s.code] = { name: s.name, amount: 0 }; fmap[s.code].amount += s.amount; });
   const smap = {};
+  // 1) 从基金底层持仓推导股票集中度（过滤 ETF/LOF/指数名称）
   Object.entries(data.fundHoldings).forEach(([fc, holdings]) => {
     const fund = fmap[fc]; if (!fund) return;
     const w = fund.amount / (total || 1);
     holdings.forEach(h => {
+      var hn = h.name || '';
+      if (/ETF|LOF|指数|联接/.test(hn)) return;
       if (!smap[h.code]) smap[h.code] = { name: h.name, total: 0, sources: [] };
       const contribution = h.ratio * w;
       smap[h.code].total += contribution;
       smap[h.code].sources.push({ fundCode: fc, fundName: fund.name, ratio: contribution });
     });
   });
+  // 2) 直接持有的股票（过滤 ETF/LOF 和 AI 幻觉名称）
+  correctedStocks.forEach(function(s) {
+    if (s.code === '511880') return;
+    // 过滤 AI 幻觉产生的 OTHER_ 前缀名称
+    if (s.code.startsWith('OTHER_')) return;
+    var sn = s.name || '';
+    if (/ETF|LOF|指数|联接|货币/.test(sn)) return;
+    if (!KNOWN_FUND_CODES[s.code]) {
+      const w = s.amount / (total || 1);
+      if (!smap[s.code]) smap[s.code] = { name: s.name || ('股票' + s.code), total: 0, sources: [] };
+      smap[s.code].total += w * 100;
+      smap[s.code].sources.push({ fundCode: 'DIRECT', fundName: '直接持有', ratio: w * 100 });
+    }
+  });
   const concStocks = Object.entries(smap).map(([code, info]) => ({ code, name: info.name, total: info.total, sources: info.sources }))
     .sort((a, b) => b.total - a.total);
 
-  const historyImages = snap.images || [];
-
   container.innerHTML = `
-    <div class="page-header" style="margin-bottom:12px">
+    <div class="page-header" style="margin-bottom:8px">
       <div class="dropdown" style="position:relative;display:inline-block">
         <button onclick="toggleHistoryAccountDropdown()" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px">
-          <h2 style="margin:0">历史记录明细</h2>
+          <h2 style="margin:0;font-size:18px">历史记录明细</h2>
           <svg id="histDropdownArrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s">
             <path d="M6 9l6 6 6-6"/>
           </svg>
@@ -1688,150 +1814,93 @@ function renderHistoryDetailView() {
       <span class="mono" style="font-weight:700;color:var(--primary);font-size:18px">¥${(total/10000).toFixed(2)}万</span>
     </div>
 
-    <div class="card">
-      <div class="card-title" style="margin-bottom:8px">按类型汇总</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${typeRows.map(([t, info]) => `<div style="flex:1;min-width:calc(50% - 6px);background:#f8faf8;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
-          <span class="tag tag-primary" style="flex-shrink:0">${t}</span>
-          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(info.amount/total*100)}</span>
+    <div class="card" style="padding:8px">
+      <div class="card-title" style="margin-bottom:4px;font-size:14px">按类型汇总</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        ${typeRows.map(([t, info]) => `<div style="flex:1;min-width:calc(50% - 4px);background:#f8faf8;border-radius:6px;padding:4px 8px;display:flex;align-items:center;justify-content:space-between;gap:2px;font-size:12px">
+          <span class="tag tag-primary" style="flex-shrink:0;font-size:10px">${t}</span>
+          <span class="mono" style="font-size:12px;font-weight:600;text-align:right">${fmtRatio(info.amount/total*100)}</span>
         </div>`).join('')}
-        <div style="flex:1;min-width:calc(50% - 6px);background:#f0faf4;border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px">
-          <span class="tag" style="background:#f0faf4;color:var(--primary);flex-shrink:0">现金</span>
-          <span class="mono" style="font-size:13px;font-weight:600;text-align:right">${fmtRatio(totalCash/total*100)}</span>
-        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text-secondary)">
-        <span>合计 ${typeRows.length} 类 + 现金</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);font-size:11px;color:var(--text-secondary)">
+        <span>合计 ${typeRows.length} 类</span>
         <span class="mono" style="font-weight:700;color:var(--text)">¥${(total/10000).toFixed(2)}万</span>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">数据来源图片 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（${dateStr}）</span></div>
-      ${historyImages.length > 0 ? `
-        <div style="display:flex;flex-wrap:wrap;gap:16px">
-          ${historyImages.map(img => {
-            const typeLabel = IMAGE_TYPES.find(t => t.id === img.type)?.label || img.type;
-            return `
-              <div style="flex:1;min-width:280px;border:1px solid var(--border);border-radius:8px;padding:12px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                  <strong>${typeLabel}</strong>
-                  <button class="btn" style="padding:4px 10px;font-size:12px" onclick="showHistoryImage('${dateStr}', '${img.id}')">查看大图</button>
-                </div>
-                <img src="${img.dataUrl}" style="width:100%;border-radius:4px;border:1px solid var(--border)">
-                <div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">
-                  ${img.fileName} • ${Math.round(img.size / 1024)} KB
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      ` : `
-        <div style="text-align:center;color:var(--text-secondary);padding:32px 0">
-          该日期暂无图片数据
-        </div>
-      `}
-    </div>
-
-    <div class="card">
-      <div class="card-title">持仓详情 <span style="font-size:13px;font-weight:400;color:var(--text-secondary)">（${dateStr}，共 ${allItems.length+1} 项）</span></div>
-      <div class="table-scroll"><table><thead><tr>
-        <th>名称</th><th class="text-right">持仓占比</th>
-        <th>代码</th>
-        <th class="text-right">持仓金额</th><th class="text-right">持仓收益</th><th class="text-right">收益率</th>
-        <th>类型</th>
-      </tr></thead><tbody>
-        ${allItems.map(item => {
-          let cat = item.type || typeLookup[item.code] || '个股';
-          cat = typeMergeMap[cat] || cat;
-          const adj = getAdjusted(item.code, item.amount, item.profit, item.profitRate);
-          const adjInfo = data.clearedAdjustments[item.code];
-          return `<tr>
-            <td><strong>${item.name}</strong></td>
-            <td class="text-right mono">${fmtRatio(item.amount/total*100)}</td>
-            <td class="mono">${item.code}</td>
-            <td class="text-right mono">¥${Math.round(item.amount).toLocaleString()}</td>
-            <td class="text-right mono ${adj.profit>=0?'positive':'negative'}">¥${Math.round(adj.profit).toLocaleString()}${adjInfo ? '<sup title="已清仓亏损已抵扣 ¥'+adjInfo.amount.toLocaleString()+'">!</sup>' : ''}</td>
-            <td class="text-right mono ${adj.profitRate>=0?'positive':'negative'}">${adj.profitRate>=0?'+':''}${Math.round(adj.profitRate)}%</td>
-            <td><span class="tag tag-primary">${cat}</span></td>
-          </tr>`;
-        }).join('')}
-        <tr>
-          <td><strong>现金</strong></td>
-          <td class="text-right mono">${fmtRatio(totalCash/total*100)}</td>
-          <td class="mono" style="color:var(--text-secondary)">511880</td>
-          <td class="text-right mono">¥${Math.round(totalCash).toLocaleString()}</td>
-          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
-          <td class="text-right mono" style="color:var(--text-secondary)">—</td>
-          <td><span class="tag" style="background:#f0faf4;color:var(--primary)">现金</span></td>
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr style="background:#f0faf4;font-weight:700">
-          <td colspan="2" class="mono">合计</td>
-          <td class="text-right mono">—</td>
-          <td class="text-right mono">¥${Math.round(total).toLocaleString()}</td>
-          <td class="text-right mono">—</td>
-          <td class="text-right mono">—</td>
-          <td class="text-right mono">—</td>
-        </tr>
-      </tfoot></table></div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div class="card-title" style="margin-bottom:0">股票集中度排名</div>
-        <span style="font-size:13px;color:var(--text-secondary)">共 ${concStocks.length} 只股票 &nbsp;|&nbsp; <span style="color:var(--text-secondary)">≥1% 的股票 ${concStocks.filter(s => s.total >= 1).length} 只，占总资产 ${concStocks.filter(s => s.total >= 1).reduce((sum, s) => sum + s.total, 0).toFixed(2)}%</span></span>
+    <div class="card" style="padding:8px">
+      <div class="card-title" style="margin-bottom:3px;font-size:13px;text-align:center">持仓详情 <span style="font-size:10px;font-weight:400;color:var(--text-secondary)">（${dateStr}，共 ${typeRows2.length+1} 类）</span></div>
+      <div style="display:flex;font-size:10px;color:var(--text-secondary);border-bottom:2px solid var(--border);padding:2px 6px">
+        <span style="flex:1;min-width:0;text-align:center">类型</span>
+        <span style="width:90px;text-align:center;flex-shrink:0">金额/占比</span>
+        <span style="width:80px;text-align:center;flex-shrink:0">收益/率</span>
       </div>
-      <div class="table-scroll"><table><thead><tr>
-        <th>排名</th><th>股票代码</th><th>股票名称</th>
-        <th class="text-right">总占比</th>
-        <th class="text-center">来源基金数</th><th>操作</th>
-      </tr></thead><tbody>
-        ${concStocks.map((s, i) => {
-          return `<tr style="${s.total>=15?'background:#fef2f2':s.total>=10?'background:#fefce8':''}">
-            <td class="mono">${i+1}</td>
-            <td class="mono">${s.code}</td>
-            <td><strong>${s.name}</strong></td>
-            <td class="text-right mono" style="font-weight:600">${s.total.toFixed(2)}%</td>
-            <td class="text-center">${s.sources.length}</td>
-            <td><button class="expand-btn" onclick="toggleHistoryDetail('${s.code}')">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="hist-arr-${s.code}"><path d="m6 9 6 6 6-6"/></svg>
-            </button></td>
-          </tr>
-          <tr id="hist-detail-${s.code}" style="display:none">
-            <td colspan="6">
-              <div class="detail-content">
-                <strong style="font-size:13px;margin-bottom:8px;display:block">来源基金明细：</strong>
-                <table><thead><tr><th>基金代码</th><th>基金名称</th><th class="text-right">贡献占比</th></tr></thead><tbody>
-                  ${s.sources.map(src => `<tr><td class="mono">${src.fundCode}</td><td>${src.fundName}</td><td class="text-right mono">${src.ratio.toFixed(2)}%</td></tr>`).join('')}
-                </tbody></table>
-              </div>
-            </td>
-          </tr>`;
-        }).join('')}
-      </tbody></table></div>
-    </div>
-
-    <div class="alert alert-info">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
       <div>
-        <h4>分析说明</h4>
-        <p style="margin-top:4px">本页面汇总了您持有的所有基金中同一只股票的占比。通过跨基金合并计算，帮助您发现投资组合中是否存在股票集中度过高的风险。<br>
-        <strong>黄色预警：</strong>集中度 ≥ 10% | <strong style="color:#dc2626">红色预警：</strong>集中度 ≥ 15%</p>
-        <p style="margin-top:8px;font-size:12px;color:#64748b"><sup>*</sup> 已清仓亏损已在收益中扣除，收益率按调整后重新计算</p>
+        ${typeRows2.map(item => {
+          const adjProfit = item.profit;
+          const adjRate = item.rate;
+          return `<div style="display:flex;align-items:center;padding:2px 6px;border-bottom:1px solid #eee;font-size:11px">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;text-align:center"><strong style="font-size:12px">${item.cat}</strong></span>
+            <span style="width:90px;text-align:center;flex-shrink:0;font-size:10px;white-space:nowrap"><span class="mono" style="font-weight:600">¥${Math.round(item.amount/10000).toFixed(1)}万</span><br><span style="font-size:8px;color:var(--text-secondary)">${fmtRatio(item.amount/total*100)}</span></span>
+            <span style="width:80px;text-align:center;flex-shrink:0;font-size:10px;white-space:nowrap"><span class="mono ${adjProfit>=0?'positive':'negative'}">¥${Math.round(adjProfit/10000).toFixed(1)}万</span><br><span class="mono ${adjRate>=0?'positive':'negative'}" style="font-size:8px">${adjRate>=0?'+':''}${adjRate.toFixed(1)}%</span></span>
+          </div>`;
+        }).join('')}
+        <div style="display:flex;align-items:center;padding:2px 6px;border-bottom:1px solid #eee;font-size:11px">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;text-align:center"><strong style="font-size:12px">现金</strong></span>
+          <span style="width:90px;text-align:center;flex-shrink:0;font-size:10px;white-space:nowrap"><span class="mono" style="font-weight:600">¥${(totalCash/10000).toFixed(1)}万</span><br><span style="font-size:8px;color:var(--text-secondary)">${fmtRatio(totalCash/total*100)}</span></span>
+          <span style="width:80px;text-align:center;flex-shrink:0;font-size:10px;color:var(--text-secondary)">—</span>
+        </div>
+        <div style="display:flex;align-items:center;padding:2px 6px;font-size:11px;background:#f0faf4;font-weight:700">
+          <span class="mono" style="flex:1;min-width:0;font-size:10px;text-align:center">合计</span>
+          <span class="text-right mono" style="width:90px;flex-shrink:0;font-size:10px;white-space:nowrap;text-align:center"><span style="font-weight:700">¥${(total/10000).toFixed(1)}万</span><br><span style="font-size:8px;color:var(--text-secondary);font-weight:400">${fmtRatio(100)}</span></span>
+          <span class="text-right mono" style="width:80px;flex-shrink:0;font-size:10px;text-align:center"><span class="${totalTypeProfit>=0?'positive':'negative'}">¥${Math.round(totalTypeProfit/10000).toFixed(1)}万</span><br><span class="${totalTypeRate>=0?'positive':'negative'}" style="font-size:8px;font-weight:400">${totalTypeRate>=0?'+':''}${totalTypeRate.toFixed(1)}%</span></span>
+        </div>
+      </div>
+      ${Object.keys(data.clearedAdjustments).length > 0 ? `<div style="padding:3px 4px 0;font-size:9px;color:var(--text-secondary);line-height:1.3;text-align:center">⚠ 清仓调整：${Object.entries(data.clearedAdjustments).map(([code, info]) => { const tmap = {}; Object.entries(data.fundTypeMapping).forEach(([t, codes]) => codes.forEach(c => tmap[c]=t)); return (tmap[code] || info.name) + ' ¥' + Math.round(info.amount/10000) + '万'; }).join('，')}</div>` : ''}
+    </div>
+
+    <div class="card" style="padding:8px">
+      <div style="text-align:center;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0;font-size:13px">股票集中度排名</div>
+        <div style="font-size:10px;color:var(--text-secondary)">≥1% 共 ${concStocks.filter(s => s.total >= 1).length} 只，占 ${concStocks.filter(s => s.total >= 1).reduce((sum, s) => sum + s.total, 0).toFixed(1)}%</div>
+      </div>
+      <div style="overflow-y:auto;max-height:calc(100vh - 460px)" id="concStocksBody">
+        <div style="display:flex;padding:2px 8px;font-size:10px;color:var(--text-secondary);border-bottom:2px solid var(--border)">
+          <span style="flex:1;min-width:0;text-align:center">股票名称</span><span style="width:56px;text-align:center;flex-shrink:0">占比</span>
+        </div>
+        ${concStocks.map((s, i) => {
+          var pure = s.name.replace(/【.*?】/g, '');
+          var bg = s.total>=15 ? '#fef2f2' : s.total>=10 ? '#fefce8' : '';
+          return `<div data-stock-row="1" style="display:flex;align-items:center;padding:3px 8px;cursor:pointer;border-bottom:1px solid #eee;font-size:11px;background:${bg}" onclick="toggleConcDetail('${s.code}')">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;text-align:center" title="${pure}">${pure}</span>
+            <span style="width:56px;text-align:center;flex-shrink:0;font-weight:600;font-family:monospace">${s.total.toFixed(2)}%</span>
+          </div>
+          <div style="display:none;padding:0" id="conc-detail-${s.code}">
+            <div style="padding:6px 8px 6px 12px;background:#fafafa;font-size:10px">
+              <div style="display:flex;font-size:8px;color:var(--text-secondary);border-bottom:1px solid #ddd;padding:1px 0">
+                <span style="width:52px;flex-shrink:0">基金代码</span>
+                <span style="flex:1;min-width:0">基金名称</span>
+                <span style="width:44px;text-align:right;flex-shrink:0">贡献占比</span>
+              </div>
+              ${s.sources.map(src => `<div style="display:flex;padding:1px 0;border-bottom:1px solid #f0f0f0">
+                <span class="mono" style="width:52px;flex-shrink:0;font-size:8px">${src.fundCode}</span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px">${src.fundName}</span>
+                <span class="mono" style="width:44px;text-align:right;flex-shrink:0;font-size:8px">${src.ratio.toFixed(2)}%</span>
+              </div>`).join('')}
+            </div>
+          </div>`;
+        }).join('')}
       </div>
     </div>
+
+    <div style="padding:8px 10px;background:#f8f8fa;border-radius:6px;font-size:11px;color:var(--text-secondary);line-height:1.5">跨基金合并计算股票集中度，黄≥10% 红≥15%。<br>已清仓亏损已在收益中扣除，收益率按调整后重新计算</div>
   `;
 }
 
-function toggleHistoryDetail(code) {
-  const row = document.getElementById('hist-detail-' + code);
-  const arrow = document.getElementById('hist-arr-' + code);
-  if (!row) return;
-  const show = row.style.display !== 'table-row';
-  row.style.display = show ? 'table-row' : 'none';
-  if (arrow) arrow.style.transform = show ? 'rotate(180deg)' : '';
+function toggleConcDetail(code) {
+  const wrap = document.getElementById('conc-detail-' + code);
+  if (!wrap) return;
+  wrap.style.display = wrap.style.display === 'block' ? 'none' : 'block';
 }
 
 function toggleHistoryAccountDropdown() {
@@ -1844,70 +1913,57 @@ function toggleHistoryAccountDropdown() {
   }
 }
 
-function showHistoryImage(dateStr, imageId) {
-  const snap = loadSnapshot(dateStr);
-  if (!snap || !snap.images) return;
-  const image = snap.images.find(img => img.id === imageId);
-  if (!image) return;
-  
-  const overlay = document.createElement('div');
-  overlay.id = 'imagePreviewOverlay';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out';
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-  
-  const img = document.createElement('img');
-  img.src = image.dataUrl;
-  img.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain';
-  img.onclick = (e) => e.stopPropagation();
-  
-  overlay.appendChild(img);
-  document.body.appendChild(overlay);
+// 图片压缩函数
+async function compressImage(file, maxWidth=1600, maxHeight=1200, quality=0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // 缩放图片（不低于模型最小尺寸要求）
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // 转换为JPEG格式压缩
+        canvas.toBlob((blob) => {
+          const reader2 = new FileReader();
+          reader2.onload = (e2) => {
+            const originalSize = file.size;
+            const compressedSize = blob.size;
+            const compressedUrl = e2.target.result;
+            const ratio = (1 - compressedSize / originalSize) * 100;
+            console.log(`图片压缩: ${(originalSize/1024).toFixed(1)}KB → ${(compressedSize/1024).toFixed(1)}KB (节省 ${ratio.toFixed(1)}%)`);
+            resolve(compressedUrl);
+          };
+          reader2.readAsDataURL(blob);
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // image upload
-const uploadedImages = [];
-
-function openUploadPanel() {
-  document.getElementById('uploadOverlay').classList.add('show');
-  document.getElementById('uploadStatus').innerHTML = '';
-  uploadedImages.length = 0;
-  document.getElementById('uploadFileList').innerHTML = '';
-  document.getElementById('uploadPlaceholder').style.display = '';
-  document.getElementById('uploadFileInput').value = '';
-}
-
-function closeUploadPanel() {
-  document.getElementById('uploadOverlay').classList.remove('show');
-}
-
-function handleFilesSelected(input) {
-  if (!input.files || input.files.length === 0) return;
-  for (const file of input.files) {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      uploadedImages.push({ dataUrl: ev.target.result, name: file.name });
-      renderUploadList();
-    };
-    reader.readAsDataURL(file);
-  }
-}
-
-function renderUploadList() {
-  const container = document.getElementById('uploadFileList');
-  const placeholder = document.getElementById('uploadPlaceholder');
-  placeholder.style.display = uploadedImages.length > 0 ? 'none' : '';
-  container.innerHTML = uploadedImages.map((img, i) =>
-    '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f8faf8;border-radius:6px;margin-bottom:4px">' +
-      '<img src="' + img.dataUrl + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover;border:1px solid var(--border);flex-shrink:0">' +
-      '<span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + img.name + '</span>' +
-      '<button style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;padding:2px 4px" onclick="uploadedImages.splice(' + i + ',1);renderUploadList()">✕</button>' +
-    '</div>'
-  ).join('');
-}
-
-const historyUploadedImages = [];
+var historyUploadedImages = [];
 
 function openHistoryUploadPanel() {
+  try { clientLog('INFO', 'upload', '打开上传对话框'); } catch(ex) {}
   document.getElementById('uploadOverlayHistory').classList.add('show');
   document.getElementById('historyUploadStatus').innerHTML = '';
   historyUploadedImages.length = 0;
@@ -1921,15 +1977,24 @@ function closeHistoryUploadPanel() {
   document.getElementById('uploadOverlayHistory').classList.remove('show');
 }
 
-function handleHistoryFilesSelected(input) {
+async function handleHistoryFilesSelected(input) {
   if (!input.files || input.files.length === 0) return;
-  for (const file of input.files) {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      historyUploadedImages.push({ dataUrl: ev.target.result, name: file.name });
+  const statusEl = document.getElementById('historyUploadStatus');
+  statusEl.innerHTML = '<div class="parse-status loading">⏳ 正在压缩图片...</div>';
+
+  try {
+    const names = [];
+    for (const file of input.files) {
+      const compressedDataUrl = await compressImage(file);
+      historyUploadedImages.push({ dataUrl: compressedDataUrl, name: file.name });
+      names.push(file.name + '(' + Math.round(file.size / 1024) + 'KB)');
       renderHistoryUploadList();
-    };
-    reader.readAsDataURL(file);
+    }
+    try { clientLog('INFO', 'upload', '历史图片已加载: ' + historyUploadedImages.length + ' 张', { images: names }); } catch(ex) {}
+    statusEl.innerHTML = '';
+  } catch (e) {
+    try { clientLog('ERROR', 'upload', '历史图片压缩失败: ' + e.message, { stack: (e.stack || '').substring(0, 200) }); } catch(ex) {}
+    statusEl.innerHTML = '<div class="parse-status error">❌ 图片压缩失败: ' + e.message + '</div>';
   }
 }
 
@@ -1967,53 +2032,302 @@ function validateParsedData(parsed) {
   } else {
     if (parsed.funds.length < 3) warnings.push('场外基金数量偏少（' + parsed.funds.length + '只），请确认截图完整性');
     parsed.funds.forEach((f, i) => {
-      if (!f.code || !f.name) errors.push('场外基金第' + (i+1) + '条缺少代码或名称');
+      // 缺少代码/名称降级为警告（AI可能只识别出部分字段）
+      if (!f.code || !f.name) {
+        warnings.push('场外基金第' + (i+1) + '条缺少代码或名称(' + (f.name||'未知名称') + ')，已尝试从名称恢复');
+      } else {
+        var codePattern = /^\d{5,6}$/;
+        if (!codePattern.test(f.code)) {
+          // 代码格式异常降级为警告
+          warnings.push('场外基金代码格式异常: ' + f.code + ' (' + (f.name||'未知') + ')');
+        }
+      }
       if (!f.amount || isNaN(f.amount)) errors.push('场外基金"' + (f.name||'未知') + '"缺少持仓金额');
+      else if (f.amount < 0) warnings.push('场外基金"' + (f.name||'未知') + '"金额为负数');
       if (typeof f.profit === 'undefined' || isNaN(f.profit)) errors.push('场外基金"' + (f.name||'未知') + '"缺少持仓收益');
     });
   }
 
-  if (!parsed.stocks || !Array.isArray(parsed.stocks) || parsed.stocks.length === 0) {
-    errors.push('未提取到场内持仓数据');
+  // 场内持仓 (stocks) 为空是合理的 - AI 可能把所有持仓都归入 funds
+  // 只要有 funds 就不报错，stocks 为空时从 funds 中智能迁移
+  var hasStocksData = parsed.stocks && Array.isArray(parsed.stocks) && parsed.stocks.length > 0;
+  
+  // 自动从 funds 迁移场内 ETF 到 stocks（如果 stocks 为空但 funds 中存在 ETF）
+  if (!hasStocksData && parsed.funds && Array.isArray(parsed.funds) && parsed.funds.length > 0) {
+    var migratedToStocks = [];
+    var remainingFunds = [];
+    parsed.funds.forEach(function(f) {
+      if (f.code && KNOWN_FUND_CODES && KNOWN_FUND_CODES[f.code]) {
+        migratedToStocks.push(f);
+      } else {
+        remainingFunds.push(f);
+      }
+    });
+    if (migratedToStocks.length > 0) {
+      parsed.funds = remainingFunds;
+      parsed.stocks = migratedToStocks;
+      hasStocksData = true;
+      try { clientLog('INFO', 'parser', '从 funds 自动迁移 ' + migratedToStocks.length + ' 只 ETF 到 stocks', 
+                    { codes: migratedToStocks.map(function(x) { return x.code; }) }); } catch(ex) {}
+    }
+  }
+
+  if (!hasStocksData) {
+    warnings.push('场内持仓数据为空（AI可能将所有持仓归入场外基金），已尝试智能迁移');
   } else {
     var has511880 = parsed.stocks.some(function(s) { return s.code === '511880'; });
     if (!has511880) warnings.push('场内持仓中未找到银华日利(511880)，现金计算可能不准确');
     parsed.stocks.forEach(function(s, i) {
-      if (!s.code || !s.name) errors.push('场内持仓第' + (i+1) + '条缺少代码或名称');
+      // 缺少代码/名称降级为警告（AI可能只识别出部分字段）
+      if (!s.code || !s.name) {
+        warnings.push('场内持仓第' + (i+1) + '条缺少代码或名称(' + (s.name||'未知名称') + ')，已尝试从名称恢复');
+      } else {
+        var codePattern = /^\d{5,6}$/;
+        var alphaPattern = /^[A-Z0-9]{1,5}$/;
+        if (!codePattern.test(s.code) && !alphaPattern.test(s.code)) {
+          // 代码格式异常时降级为警告
+          warnings.push('场内持仓代码格式异常: ' + s.code + ' (' + (s.name||'未知') + ')');
+        }
+      }
       if (!s.amount || isNaN(s.amount)) errors.push('场内持仓"' + (s.name||'未知') + '"缺少持仓金额');
+      else if (s.amount < 0) warnings.push('场内持仓"' + (s.name||'未知') + '"金额为负数');
     });
-    var totalHoldings = (parsed.funds||[]).reduce(function(s,f){return s+(f.amount||0);},0) + 
-      parsed.stocks.reduce(function(s,st){return s+(st.amount||0);},0);
-    var total = (parsed.douTotal||0) + (parsed.zeTotal||0);
-    if (total > 0 && totalHoldings > total * 1.3) {
-      errors.push('持仓总金额超出总资产30%以上，数据可能存在错误');
-    }
   }
+
+  // 总金额检查（考虑 stocks 可能为空的情况）
+  var totalHoldings = (parsed.funds||[]).reduce(function(s,f){return s+(f.amount||0);},0) + 
+    (parsed.stocks||[]).reduce(function(s,st){return s+(st.amount||0);},0);
+  var total = (parsed.douTotal||0) + (parsed.zeTotal||0);
+  if (total > 0 && totalHoldings > total * 1.3) {
+    errors.push('持仓总金额超出总资产30%以上，数据可能存在错误');
+  }
+
+  // ===== 二次检查: 增强校验 =====
+  var info = [];
+
+  // 1. 金额一致性检查
+  var checkFundsSum = (parsed.funds||[]).reduce(function(s,f){return s+(f.amount||0);},0);
+  var checkStocksSum = (parsed.stocks||[]).reduce(function(s,st){return s+(st.amount||0);},0);
+  var checkTotal = checkFundsSum + checkStocksSum;
+  var accountTotal = (parsed.douTotal||0) + (parsed.zeTotal||0);
+  if (accountTotal > 0) {
+    var ratio = checkTotal / accountTotal;
+    info.push('金额一致性: ' + (ratio*100).toFixed(1) + '% (持仓' + Math.round(checkTotal/10000) + '万 / 资产' + Math.round(accountTotal/10000) + '万)');
+    if (ratio < 0.5 || ratio > 1.5) warnings.push('持仓总额与账户总资产偏差过大(' + (ratio*100).toFixed(0) + '%)，图片可能不完整');
+  }
+
+  // 2. 收益率合理性检查
+  var allHolderItems = (parsed.funds||[]).concat(parsed.stocks||[]);
+  var abnormalRates = allHolderItems.filter(function(item) {
+    return item.profitRate && (item.profitRate > 500 || item.profitRate < -100);
+  });
+  if (abnormalRates.length > 0) {
+    var codes = abnormalRates.map(function(i){return i.code + '(' + i.profitRate.toFixed(0) + '%)';}).join(', ');
+    warnings.push('异常收益率: ' + codes);
+  }
+
+  // 3. 511880 存在性
+  var has511880InStocks = (parsed.stocks||[]).some(function(s){return s.code === '511880';});
+  if (!has511880InStocks && (parsed.stocks||[]).length > 0) {
+    warnings.push('场内持仓中未找到银华日利(511880)，现金/总资产计算可能不准确');
+  }
+
+  // 4. 代码格式全量校验
+  var badCodes = [];
+  allHolderItems.forEach(function(item) {
+    if (!item.code) return;
+    var codeStr = String(item.code);
+    if (!/^\d{5,6}$/.test(codeStr) && !/^[A-Z0-9]{1,5}$/.test(codeStr)) {
+      badCodes.push(codeStr + '(' + (item.name||'?') + ')');
+    }
+  });
+  if (badCodes.length > 0) warnings.push('代码格式异常: ' + badCodes.join(', '));
+
+  // 5. 空字段检测
+  var missingFields = [];
+  allHolderItems.forEach(function(item, i) {
+    if (!item.name) missingFields.push('第'+(i+1)+'项: 名称为空');
+    if (!item.code) missingFields.push('第'+(i+1)+'项: 代码为空');
+    if (!item.amount || isNaN(item.amount)) missingFields.push('第'+(i+1)+'项: 金额为空');
+  });
+  if (missingFields.length > 0) warnings.push('字段缺失: ' + missingFields.slice(0,5).join('; '));
+
+  // 6. 利润+金额一致性 (利润绝对值不应超过金额)
+  allHolderItems.forEach(function(item) {
+    if (item.profit && item.amount && Math.abs(item.profit) > Math.abs(item.amount) * 1.2) {
+      warnings.push(item.code + ' ' + (item.name||'') + ' 收益(¥' + Math.round(item.profit).toLocaleString() + ')异常偏高，金额仅¥' + Math.round(item.amount).toLocaleString());
+    }
+  });
+
+  // 7. 图片数量提示
+  if (info.length > 0) warnings.unshift('校验报告: ' + info.join(' | '));
 
   return { valid: errors.length === 0, errors: errors, warnings: warnings };
 }
 
-function saveHistorySnapshotForDate(dateStr, parsed, images) {
-  var history = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
-  history[dateStr] = {
+async function saveHistorySnapshotForDate(dateStr, parsed, images) {
+  // 不保存图片，只保存解析后的数据（2年数据约5MB，localStorage够用）
+  var fullHistory = {};
+  try {
+    const res = await fetch('/api/data/load');
+    if (res.ok) {
+      const serverData = await res.json();
+      fullHistory = (serverData && serverData.history) || {};
+    }
+  } catch(e) {}
+
+  // 合并本地作为兜底
+  const localHistory = JSON.parse(localStorage.getItem('portfolio_history') || '{}');
+  const allDates = new Set([...Object.keys(fullHistory), ...Object.keys(localHistory)]);
+  const merged = {};
+  allDates.forEach(date => { merged[date] = fullHistory[date] || localHistory[date]; });
+  fullHistory = merged;
+
+  fullHistory[dateStr] = {
     funds: parsed.funds || [],
     stocks: parsed.stocks || [],
     douTotal: parsed.douTotal || 0,
     zeTotal: parsed.zeTotal || 0,
-    snapshotDate: dateStr,
-    images: images.map(function(img) { return { id: 'hist_' + Date.now() + '_' + Math.random().toString(36).substr(2,6), type: 'upload', dataUrl: img.dataUrl, fileName: img.name, uploadTime: new Date().toISOString(), size: img.dataUrl.length }; })
+    snapshotDate: dateStr
   };
-  localStorage.setItem('portfolio_history', JSON.stringify(history));
+
+  console.log('[保存] 保存日期 ' + dateStr);
+
+  try {
+    clientLog('INFO', 'data', '写入快照: date=' + dateStr + ', funds=' + (parsed.funds || []).length + ', stocks=' + (parsed.stocks || []).length);
+  } catch(ex) {}
+
+  await saveToServer(fullHistory);
+
+  // 更新缓存
+  cachedHistory = fullHistory;
+  try {
+    localStorage.setItem('portfolio_history', JSON.stringify(fullHistory));
+  } catch(e) {
+    console.log('[警告] localStorage写入失败，服务器已保存');
+  }
+}
+
+async function saveToServer(history) {
+  var payload = {
+    history: history,
+    currentData: {
+      funds: data.funds,
+      stocks: data.stocks,
+      douTotal: data.douTotal,
+      zeTotal: data.zeTotal
+    },
+    douTotal: data.douTotal,
+    zeTotal: data.zeTotal
+  };
+  try {
+    const res = await fetch('/api/data/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const resp = await res.json();
+      console.log('[服务器已保存！快照数：', resp.snapshots);
+      try { clientLog('INFO', 'data', '服务器保存成功, snapshots=' + (resp.snapshots || 0), { status: res.status }); } catch(ex) {}
+      return true;
+    } else {
+      console.log('[保存] 服务器返回非200:', res.status);
+      try { clientLog('ERROR', 'data', '服务器保存失败 HTTP ' + res.status, { status: res.status }); } catch(ex) {}
+      return false;
+    }
+  } catch(e) {
+    console.log('[保存] 服务器失败:', e);
+    try { clientLog('ERROR', 'data', '服务器保存异常: ' + e.message, { stack: (e.stack || '').substring(0, 200) }); } catch(ex) {}
+    return false;
+  }
 }
 
 async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
   var statusEl = document.getElementById(statusElId);
   var btnEl = document.getElementById(btnId);
+  if (!statusEl || !btnEl) {
+    try { clientLog('ERROR', 'parser', '解析所需DOM元素缺失: status=' + !!statusEl + ', btn=' + !!btnEl); } catch(ex) {}
+    return;
+  }
+  var t0 = Date.now();
   statusEl.innerHTML = '<div class="parse-status loading">⏳ 正在调用 qwen-vl-max 解析 ' + uploadImages.length + ' 张图片，请稍候...</div>';
   btnEl.disabled = true;
 
   try {
-    var promptText = '你是一个严格的金融数据提取工具。请从下面的截图图片中提取持仓数据。\n\n需要提取的信息：\n1. 从持仓明细截图（表格形式，含代码/名称/金额/收益/收益率列）中提取所有基金和股票的持仓数据\n2. 从豆账户总资产截图中提取总资产金额（最大金额数字，通常格式为1,278,618.04）\n3. 从泽账户总资产截图中提取总资产金额\n\n请严格按以下JSON格式返回（不要任何其他文字）：\n{\n  "douTotal": 数字,\n  "zeTotal": 数字,\n  "funds": [{"code":"6位代码","name":"名称","type":"类型","amount":数字,"profit":数字,"profitRate":数字}],\n  "stocks": [{"code":"6位代码","name":"名称","shares":数字,"price":数字,"amount":数字,"profit":数字,"profitRate":数字}]\n}\n\n类型映射规则：代码162开头=医疗，501开头=新能源车，含300的代码=沪深300，161725=白酒，159915=创业板+新能源，513050=中概互联，510500/515000=信息+500，511880=现金。\n\n如果某类数据不存在，对应字段返回空数组或null。';
+    var promptText = '你是一个严格的金融数据提取工具。请按以下规则处理下面的4张图片。\n\n' +
+'【图片类型识别】先判断每张图片属于哪一类，再按对应规则提取：\n\n' +
+'---------- 类型A：泽持仓（列表卡片式，橙色背景） ----------\n' +
+'识别特征：橙色/红色渐变背景，显示"总资产(元)"和"*公泽"等字样，列表展示基金持仓\n' +
+'提取内容：\n' +
+'  - 总资产 = 图中最大的数字（在"总资产(元)"标签下方，通常是几十万级别）\n' +
+'  - 持仓列表 = 从上到下逐个基金卡片，每张卡片包含：\n' +
+'    ※ 名称：卡片顶部左侧的大字（如"华宝医疗ETF联接A"），忽略右侧的6位数字代码\n' +
+'    ※ 资产：名称下方"资产"标签右侧的大数字（如"278,221.73"）\n' +
+'    ※ 持仓收益：卡片右侧区域，寻找带"+"或"-"符号的数字，通常是红色（盈利）或绿色（亏损）\n' +
+'                这个数字可能在"持仓收益"、"持仓盈亏"或"累计收益"标签附近\n' +
+'    ※ 注意：不要提取"昨日收益"数字，只提取"持仓收益/盈亏/累计收益"相关的数字\n' +
+'    ※ 卡片之间有分隔线或空白间隔\n' +
+'    ※ 泽账户典型持仓顺序（从上到下）：\n' +
+'       1. 华宝医疗ETF联接A（通常金额最大）\n' +
+'       2. 兴全沪深300指数(LOF)A\n' +
+'       3. 招商中证白酒指数(LOF)A\n\n' +
+'---------- 类型B：泽总资产（橙色背景，无持仓列表） ----------\n' +
+'识别特征：橙色背景，顶部有"*公泽"或类似用户名，中央显示大数字，下方有"活期宝""基金"等分项但无持仓卡片\n' +
+'提取内容：\n' +
+'  - 总资产 = 图中最显著的大数字（在"总资产(元)"下方，通常是几十万级别）\n' +
+'  - 注意：图中还有"基金"、"活期宝"等分项数字，不要提取这些，只取最顶部的"总资产"大数字\n\n' +
+'---------- 类型C：豆总资产 + 持仓（白色背景，带总资产大数字和持仓表格） ----------\n' +
+'识别特征：白色背景，顶部显示"普通 信用 期权 模拟"标签和资金账号（如"3070****5052"），\n' +
+'          紧接着显示"总资产"标签和非常大的数字（通常上百万），下方是"持仓"标签和持仓表格\n' +
+'提取内容：\n' +
+'  - 总资产 = 在"总资产"标签正下方的大数字，通常是页面最上方、字号最大的数字（如"1,206,186.81"）\n' +
+'             注意：总资产数字通常在"证券市值"、"持仓盈亏"等其他数字的上方\n' +
+'  - 持仓表格：找到"持仓"标签下方的表格区域，**按固定顺序逐条提取**：\n' +
+'    ※ 表格布局：**名称在上、金额在下，属于同一条记录**，不是上下两行不要跨行配对！\n' +
+'    ※ 表格列顺序：【市值】【持仓｜可用】【现价】【成本价】【总盈亏（红色+或绿色-）】\n' +
+'    ※ 每条持仓的 name = 上方显示的名称（如"创业板ETF..."）\n' +
+'    ※ 每条持仓的 amount = 该名称正下方的大数字（即"市值"，如"374,663.30"）\n' +
+'    ※ 每条持仓的 profit = 该行最右侧的"总盈亏"数字（红色带+或绿色带-）\n' +
+'    ※ 牢记：名称和金额是同一行的垂直关系（名称在上、金额在下），不是跨行的水平关系\n' +
+'    ※ 豆账户持仓表格的典型顺序（从上到下）：\n' +
+'       1. 创业板ETF（金额最大，通常30万以上）\n' +
+'       2. 中概互联网ETF\n' +
+'       3. 半导体ETF\n' +
+'       4. 沪深300ETF\n' +
+'       5. 通信ETF\n' +
+'       6. 白酒基金LOF\n' +
+'       7. 中证500ETF\n' +
+'       8. 信息技术ETF\n' +
+'       9. 银华日利ETF\n' +
+'       10. 特变电工\n' +
+'    ※ 特别注意：创业板ETF在表格第一行，金额最大（30万+），不要与第三行的沪深300ETF混淆\n\n' +
+'---------- 类型D：豆持仓（白色背景，纯表格） ----------\n' +
+'识别特征：白色背景，顶部显示"普通 信用 期权 模拟"标签，下方是纯持仓表格，无总资产大数字\n' +
+'提取内容：与类型C的持仓表格提取规则完全相同\n\n' +
+'【已知持仓名称列表（OCR模糊时从此选择纠正）】\n' +
+'  沪深300ETF、创业板ETF、招商中证白酒指数(LOF)A\n' +
+'  银华日利ETF、中概互联网ETF、中概互联ETF、华宝医疗ETF联接A、兴全沪深300指数(LOF)A\n' +
+'  信息技术ETF、中证500ETF、白酒基金LOF、半导体ETF、通信ETF、特变电工\n' +
+'  常见OCR错误纠正：\n' +
+'    "创益诚/创业版/创业板ET"→创业板ETF，"恺英技术"→信息技术ETF，"中证800"→中证500ETF\n' +
+'    "中概互联"和"中概互联网ETF"是同一个，统一用"中概互联ETF"\n' +
+'    "白酒基金LOF"和"招商中证白酒指数(LOF)A"是同一个，统一用"招商中证白酒指数(LOF)A"\n' +
+'    "信息技术ET"→信息技术ETF，"中概互联网E"→中概互联ETF，"沪深300ET"→沪深300ETF\n\n' +
+'【提取后校验规则】\n' +
+'  - 必须提取到两个账户的总资产：豆账户总资产通常上百万，泽账户总资产通常几十万\n' +
+'  - 检查持仓数量是否与图片中实际卡片/表格行数匹配\n' +
+'  - 检查名称是否均为已知列表中的名称\n' +
+'  - 检查金额数字格式：如"278,221.73"去掉逗号后为278221.73\n' +
+'  - 检查是否有遗漏的持仓（如缺少创业板ETF）\n\n' +
+'最终JSON格式（只输出JSON，不要任何其他文字或markdown标记）：\n' +
+'{\n' +
+'  "douTotal": 数字或null,\n' +
+'  "zeTotal": 数字或null,\n' +
+'  "douHoldings": [{"name":"名称","amount":数字,"profit":数字}],\n' +
+'  "zeHoldings": [{"name":"名称","amount":数字,"profit":数字}]\n' +
+'}\n' +
+'缺少某类数据时对应字段返回null或[]。';
 
     // 构建content块：文本+图片
     var contentBlocks = [{ text: promptText }];
@@ -2021,8 +2335,8 @@ async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
       contentBlocks.push({ image: uploadImages[i].dataUrl });
     }
 
-    // 尝试代理优先，失败则直连DashScope
-    var response, json;
+    // 通过服务器代理调用百炼API（API Key仅在后端server.cjs，前端不暴露）
+    var response, json, apiChannel = 'proxy';
 
     try {
       response = await fetch('/api/parse', {
@@ -2034,45 +2348,47 @@ async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
       response = null;
     }
 
-    if (!response || !response.ok) {
-      // 代理不可用，直接调DashScope
-      if (!response) console.log('代理不可用，直连DashScope');
-      var apiBody = JSON.stringify({
-        model: 'qwen-vl-max',
-        input: { messages: [{ role: 'user', content: contentBlocks }] },
-        parameters: { result_format: 'message', max_tokens: 4096 }
-      });
-      response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer sk-60fea88b4446412e9db33ac6e5b14b64'
-        },
-        body: apiBody
-      });
-
-      if (!response.ok) {
-        var errText = '';
-        try { errText = await response.text(); } catch(ex) {}
-        throw new Error('DashScope API 请求失败 HTTP ' + response.status + ':\n' + errText.substring(0, 500));
+    if ((!response || response.status === 405) && apiBaseFallback) {
+      try {
+        response = await fetch(apiBaseFallback + '/api/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: contentBlocks })
+        });
+        apiChannel = 'tunnel';
+      } catch(e) {
+        response = null;
       }
     }
+
+    if (!response || !response.ok) {
+      var errMsg = '解析服务暂不可用' + (response ? '（HTTP ' + response.status + '）' : '（网络异常）');
+      try { clientLog('ERROR', 'parser', errMsg, { channel: apiChannel, status: response ? response.status : 0 }); } catch(ex) {}
+      throw new Error(errMsg);
+    }
+
+    try { clientLog('INFO', 'parser', 'AI API 响应 ' + response.status + ' (通道=' + apiChannel + ', 耗时=' + (Date.now() - t0) + 'ms)', { targetDate: targetDate }); } catch(ex) {}
 
     json = await response.json();
 
     // 处理代理返回的错误
     if (json.error) {
+      try { clientLog('ERROR', 'parser', 'API 返回错误: ' + json.error); } catch(ex) {}
       throw new Error('API 错误: ' + json.error);
     }
 
     // 处理DashScope返回的错误码
     if (json.code) {
-      throw new Error('DashScope错误 [' + json.code + ']: ' + (json.message || '未知错误').substring(0, 300));
+      var errMsg = 'DashScope错误 [' + json.code + ']: ' + (json.message || '未知错误').substring(0, 300);
+      try { clientLog('ERROR', 'parser', errMsg, { code: json.code }); } catch(ex) {}
+      throw new Error(errMsg);
     }
 
     var choices = json.output && json.output.choices;
     if (!choices || !choices.length) {
-      throw new Error('API 返回格式异常，无 choices:\n' + JSON.stringify(json).substring(0, 300));
+      var errMsg = 'API 返回格式异常，无 choices: ' + JSON.stringify(json).substring(0, 200);
+      try { clientLog('ERROR', 'parser', errMsg); } catch(ex) {}
+      throw new Error(errMsg);
     }
 
     var assistantContent = choices[0].message.content;
@@ -2085,17 +2401,150 @@ async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
     } else if (typeof assistantContent === 'string') {
       replyText = assistantContent;
     } else {
-      throw new Error('无法解析模型返回的 content 格式:\n' + JSON.stringify(assistantContent).substring(0, 300));
+      var errMsg = '无法解析模型返回的 content 格式: ' + JSON.stringify(assistantContent).substring(0, 200);
+      try { clientLog('ERROR', 'parser', errMsg); } catch(ex) {}
+      throw new Error(errMsg);
     }
 
     if (!replyText) {
+      try { clientLog('ERROR', 'parser', '模型返回空内容'); } catch(ex) {}
       throw new Error('模型返回了空内容，请重试');
     }
     var jsonMatch = replyText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('解析失败：未找到有效JSON响应。\n响应内容:\n' + replyText.substring(0, 200));
+    if (!jsonMatch) {
+      var errMsg = '解析失败：未找到有效JSON响应。响应内容: ' + replyText.substring(0, 200);
+      try { clientLog('ERROR', 'parser', errMsg, { rawPreview: replyText.substring(0, 100) }); } catch(ex) {}
+      throw new Error(errMsg);
+    }
 
     var parsed = JSON.parse(jsonMatch[0]);
-    var validation = validateParsedData(parsed);
+
+    // ===== 新两账户合并逻辑 =====
+    // 从名称匹配代码（三层匹配：精确→后缀剥离→模糊匹配）
+    function matchCode(name) {
+      var n = (name || '').trim();
+      var code = FUND_NAME_TO_CODE[n];
+      if (!code && n.endsWith('ETF')) code = FUND_NAME_TO_CODE[n.slice(0, -3)];
+      if (!code && n.endsWith('LOF')) code = FUND_NAME_TO_CODE[n.slice(0, -3)];
+      if (!code && n.includes('ETF')) { var b = n.replace(/\s*ETF$/, ''); code = FUND_NAME_TO_CODE[b]; }
+      if (!code && n.includes('联接')) { var ns = n.replace(/联接[AC]$/, ''); code = FUND_NAME_TO_CODE[ns]; }
+      if (!code) code = fuzzyMatchCode(n);
+      return code || '';
+    }
+
+    // 模糊匹配：AI OCR可能误读汉字，用字符重叠率+子串匹配+前后缀纠正
+    function fuzzyMatchCode(name) {
+      var KNOWNS = [
+        { code: '159915', names: ['创业板ETF','创业板'] },
+        { code: '510300', names: ['沪深300ETF','沪深300','300ETF'] },
+        { code: '163407', names: ['兴全沪深300指数LOF','兴全沪深300','沪深300指数'] },
+        { code: '510500', names: ['中证500ETF','中证500','500ETF'] },
+        { code: '161725', names: ['招商中证白酒指数LOF','白酒基金','中证白酒'] },
+        { code: '162412', names: ['华宝医疗ETF联接A','华宝医疗','医疗ETF'] },
+        { code: '513050', names: ['中概互联ETF','中概互联','中概互联网ETF'] },
+        { code: '159939', names: ['信息技术ETF','科技ETF','信息ETF'] },
+        { code: '512480', names: ['半导体ETF','半导体','芯片ETF'] },
+        { code: '515880', names: ['通信ETF','通信设备ETF','通信'] },
+      ];
+      var best = null;
+      var bestScore = 0;
+      var nSuffix = name.endsWith('ETF') ? 'ETF' : (name.endsWith('LOF') ? 'LOF' : name.endsWith('联接A') ? '联接' : '');
+      var chars = name.replace(/ETF|LOF|联接[AC]?|指数|\(|\)|A$/g, '').split('');
+      for (var i = 0; i < KNOWNS.length; i++) {
+        for (var j = 0; j < KNOWNS[i].names.length; j++) {
+          var kn = KNOWNS[i].names[j];
+          var kSuffix = kn.endsWith('ETF') ? 'ETF' : (kn.endsWith('LOF') ? 'LOF' : kn.endsWith('联接A') ? '联接' : '');
+          var kChars = kn.replace(/ETF|LOF|联接[AC]?|指数|\(|\)|A$/g, '').split('');
+          var overlap = 0;
+          for (var ci = 0; ci < chars.length; ci++) {
+            if (kChars.indexOf(chars[ci]) >= 0) overlap++;
+          }
+          var baseScore = overlap / Math.max(chars.length, kChars.length);
+          var suffixBonus = (nSuffix && nSuffix === kSuffix) ? 0.20 : 0;
+          var substrBonus = 0;
+          var kStr = kChars.join('');
+          for (var s = 0; s < chars.length - 1; s++) {
+            var sub = chars.slice(s, s + 2).join('');
+            if (kStr.indexOf(sub) >= 0) { substrBonus = 0.25; break; }
+          }
+          var score = baseScore + suffixBonus + substrBonus;
+          if (score > bestScore && score >= 0.45) { bestScore = score; best = KNOWNS[i].code; }
+        }
+      }
+      if (best) {
+        try { clientLog('INFO', 'parser', '模糊匹配纠正: "' + name + '" → ' + best + ' (置信度=' + (bestScore*100).toFixed(0) + '%)', {}); } catch(ex) {}
+      }
+      return best || '';
+    }
+
+    // 合并 douHoldings 和 zeHoldings
+    var merged = {};
+    function addHoldings(holdings, account) {
+      (holdings || []).forEach(function(h) {
+        var code = matchCode(h.name);
+        if (!code) code = 'OTHER_' + (h.name || 'unknown');
+        if (!merged[code]) { merged[code] = { code: code, name: h.name, amount: 0, profit: 0 }; }
+        merged[code].amount += (h.amount || 0);
+        merged[code].profit += (h.profit || 0);
+      });
+    }
+    addHoldings(parsed.douHoldings, 'dou');
+    addHoldings(parsed.zeHoldings, 'ze');
+
+    // 记录解析结果摘要到日志
+    var mergerNames = Object.values(merged).map(function(m) { return m.code + '=' + m.name; });
+    try { clientLog('INFO', 'parser', '解析完成: 豆=' + (parsed.douTotal||0).toFixed(0) + ' 泽=' + (parsed.zeTotal||0).toFixed(0) + ' 持仓数=' + Object.keys(merged).length + ' 项目=' + mergerNames.join('|'), { mergedNames: mergerNames }); } catch(ex) {}
+
+    // 分类映射
+    Object.values(merged).forEach(function(m) {
+      m.type = HARDCODED_TYPE_MAP[m.code] || '其他';
+    });
+
+    // 现金 = 总资产 - 持仓合计（511880除外，那是现金等价物）
+    var totalHoldings = Object.values(merged).filter(function(m) { return m.code !== '511880'; }).reduce(function(s, m) { return s + (m.amount || 0); }, 0);
+    var douTotal = parsed.douTotal || 0;
+    var zeTotal = parsed.zeTotal || 0;
+    var total = douTotal + zeTotal;
+    var totalCash = Math.max(0, total - totalHoldings);
+
+    // 计算收益率
+    Object.values(merged).forEach(function(m) {
+      if (m.amount > 0 && m.profit !== 0) {
+        m.profitRate = parseFloat((m.profit / (m.amount - m.profit) * 100).toFixed(2));
+      } else {
+        m.profitRate = 0;
+      }
+    });
+
+    // 转回 funds/stocks 格式（兼容历史数据结构）
+    var allItems = Object.values(merged).filter(function(m) { return m.code !== '511880'; }).sort(function(a, b) { return (b.amount || 0) - (a.amount || 0); });
+    
+    var newFunds = [];
+    var newStocks = [];
+    allItems.forEach(function(m) {
+      if (HARDCODED_TYPE_MAP[m.code] && m.code !== '511880') {
+        newFunds.push({ code: m.code, name: m.name, type: m.type, amount: m.amount, profit: m.profit, profitRate: m.profitRate });
+      } else {
+        newStocks.push({ code: m.code, name: m.name, shares: 0, price: 0, amount: m.amount, profit: m.profit, profitRate: m.profitRate });
+      }
+    });
+    // 511880 特殊处理
+    var cashItem = merged['511880'];
+    if (cashItem) {
+      newStocks.push({ code: '511880', name: cashItem.name, shares: 0, price: 0, amount: cashItem.amount, profit: cashItem.profit, profitRate: cashItem.profitRate });
+    }
+
+    var parsed = { funds: newFunds, stocks: newStocks, douTotal: douTotal, zeTotal: zeTotal, totalCash: totalCash };
+
+    // 简单校验
+    var allHolderItems = (parsed.funds || []).concat(parsed.stocks || []);
+    var hasData = allHolderItems.length > 0;
+    var hasDou = douTotal > 0, hasZe = zeTotal > 0;
+    var warnings = [];
+    if (!hasDou || !hasZe) warnings.push('总资产缺失：豆=' + (hasDou ? '有' : '无') + ' 泽=' + (hasZe ? '有' : '无'));
+    if (!hasData) warnings.push('未提取到任何持仓数据');
+
+    var validation = { valid: hasData && douTotal > 0 && zeTotal > 0, errors: (!hasData ? ['未提取到任何持仓数据'] : []), warnings: warnings };
 
     if (!validation.valid) {
       var errHtml = '<div class="parse-status error"><strong>数据校验不通过，以下内容缺失或异常：</strong><br>';
@@ -2107,6 +2556,17 @@ async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
       errHtml += '<br><small>请检查上传的截图是否完整，补充缺失的图片后重新上传</small></div>';
       statusEl.innerHTML = errHtml;
       btnEl.disabled = false;
+      try {
+        // 记录AI原始响应摘要，便于排查幻觉名称
+        var rawSummary = {
+          douTotal: parsed.douTotal, zeTotal: parsed.zeTotal,
+          douNames: (parsed.douHoldings || []).map(function(h) { return h.name; }),
+          zeNames: (parsed.zeHoldings || []).map(function(h) { return h.name; }),
+          mergedNames: Object.values(merged).map(function(m) { return m.code + ':' + m.name; })
+        };
+        clientLog('WARN', 'parser', '数据校验不通过: targetDate=' + targetDate + ', errors=' + validation.errors.length + ', AI返回=' + JSON.stringify(rawSummary).substring(0, 500),
+          { errors: validation.errors.slice(0, 5), rawSummary: rawSummary });
+      } catch(ex) {}
       return;
     }
 
@@ -2126,57 +2586,100 @@ async function doParsing(uploadImages, statusElId, btnId, targetDate, closeCb) {
       data.stocks = parsed.stocks;
     }
 
-    saveHistorySnapshotForDate(targetDate, parsed, uploadImages);
+    // 自动纠正：ETF 基金从 stocks 移入 funds
+    var corrected = correctETFClassification(data.funds, data.stocks);
+    data.funds = corrected.funds;
+    data.stocks = corrected.stocks;
 
-    // 如果是当天，也保存到 localStorage 的日期缓存
-    var today = new Date().toISOString().slice(0, 10);
-    if (targetDate === today) {
-      saveHistorySnapshot(today);
-    }
+    await saveHistorySnapshotForDate(targetDate, parsed, uploadImages);
+
+    var parseMeta = {
+      targetDate: targetDate,
+      imageCount: uploadImages.length,
+      fundsCount: (parsed.funds || []).length,
+      stocksCount: (parsed.stocks || []).length,
+      douTotal: parsed.douTotal,
+      zeTotal: parsed.zeTotal,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      mergedNames: (parsed.funds || []).concat(parsed.stocks || []).map(function(i) { return i.code + '=' + i.name; })
+    };
+    try { logData('parse_complete', parseMeta); } catch(ex) {}
+    try { clientLog('INFO', 'parser', '解析成功 ' + targetDate + ': funds=' + parseMeta.fundsCount + ' stocks=' + parseMeta.stocksCount + ' 持仓=' + parseMeta.mergedNames.join('|'), parseMeta); } catch(ex) {}
 
     var msg = '更新日期：' + targetDate + '<br>';
     if (parsed.douTotal) msg += '豆总资产: ¥' + parsed.douTotal.toLocaleString() + '<br>';
     if (parsed.zeTotal) msg += '泽总资产: ¥' + parsed.zeTotal.toLocaleString() + '<br>';
     if (parsed.funds && parsed.funds.length > 0) msg += '提取到场外基金 ' + parsed.funds.length + ' 条<br>';
     if (parsed.stocks && parsed.stocks.length > 0) msg += '提取到场内持仓 ' + parsed.stocks.length + ' 条<br>';
-    if (validation.warnings.length > 0) {
-      msg += '<br><small>⚠ ' + validation.warnings.join(' | ') + '</small>';
+    msg += '数据已保存<br>';
+
+    // 和数据对比
+    var prevDates = cachedHistory ? Object.keys(cachedHistory).filter(function(d) { return d < targetDate; }).sort() : [];
+    if (prevDates.length > 0) {
+      var prevDate = prevDates[prevDates.length - 1];
+      var prevSnap = cachedHistory[prevDate];
+      if (prevSnap) {
+        var prevTotal = (prevSnap.douTotal||0) + (prevSnap.zeTotal||0);
+        var currTotal = (parsed.douTotal||0) + (parsed.zeTotal||0);
+        var diff = currTotal - prevTotal;
+        var diffText = diff >= 0 ? '+' + diff.toLocaleString() : diff.toLocaleString();
+        msg += '<br><small style="color:var(--text-secondary)">较 ' + prevDate + '：总资产 ' + (diff >= 0 ? '↑' : '↓') + ' ¥' + diffText;
+        var prevHoldings = (prevSnap.funds||[]).concat((prevSnap.stocks||[]).filter(function(s){return s.code !== '511880';}));
+        var currHoldings = (parsed.funds||[]).concat((parsed.stocks||[]).filter(function(s){return s.code !== '511880';}));
+        if (prevHoldings.length !== currHoldings.length) {
+          msg += '，持仓项数 ' + prevHoldings.length + '→' + currHoldings.length;
+        }
+        msg += '</small><br>';
+      }
     }
 
-    statusEl.innerHTML = '<div class="parse-status success">✅ 校验通过，数据已更新！<br>' + msg + '<br><small>页面即将刷新...</small></div>';
+    var allWarnings = [];
+    allWarnings = allWarnings.concat(validation.warnings);
+    var currCodes = {};
+    (parsed.funds||[]).concat(parsed.stocks||[]).forEach(function(i) { currCodes[i.code] = i.name; });
+    var unknownCodes = Object.keys(currCodes).filter(function(c) { return c.startsWith('OTHER_'); });
+    if (unknownCodes.length > 0) {
+      allWarnings.push('存在 ' + unknownCodes.length + ' 个未识别的持仓（' + unknownCodes.map(function(c){return currCodes[c];}).join('、') + '），已归入"其他"类型');
+    }
+    var allHolderItems = (parsed.funds||[]).concat(parsed.stocks||[]);
+    var zeroProfit = allHolderItems.filter(function(i) { return !i.profit || Math.abs(i.profit) < 0.01; });
+    if (zeroProfit.length > 0 && allHolderItems.length > 1) {
+      allWarnings.push(zeroProfit.length + ' 项持仓收益为0，可能未提取到收益数据');
+    }
 
-    setTimeout(function() {
-      if (closeCb) closeCb();
-      uploadImages.length = 0;
-      render();
-    }, 1500);
+    if (allWarnings.length > 0) {
+      msg += '<br><small style="color:#a16207">⚠ ' + allWarnings.join('<br>⚠ ') + '</small>';
+    }
+
+    statusEl.innerHTML = '<div class="parse-status success">✅ 数据已更新！请确认无误后关闭<br>' + msg + '<br><small style="color:var(--text-secondary)">点击右上角 ✕ 关闭</small></div>';
+
+    uploadImages.length = 0;
+    await loadDataFromServer();
+    setTimeout(function() { render(); }, 500);
 
   } catch(e) {
+    try { clientLog('ERROR', 'parser', '解析异常: ' + e.message, { stack: (e.stack || '').substring(0, 300) }); } catch(ex) {}
     statusEl.innerHTML = '<div class="parse-status error">❌ ' + e.message + '</div>';
   } finally {
-    btnEl.disabled = false;
+    if (btnEl) btnEl.disabled = false;
   }
-}
-
-function startParsing() {
-  if (uploadedImages.length === 0) {
-    document.getElementById('uploadStatus').innerHTML = '<div class="parse-status error">请先上传至少一张截图</div>';
-    return;
-  }
-  doParsing(uploadedImages, 'uploadStatus', 'btnParse', new Date().toISOString().slice(0, 10), closeUploadPanel);
 }
 
 function startHistoryParsing() {
   var dateEl = document.getElementById('historyUploadDate');
   var targetDate = dateEl ? dateEl.value : '';
   if (!targetDate) {
-    document.getElementById('historyUploadStatus').innerHTML = '<div class="parse-status error">请先选择指定的历史日期</div>';
+    var el = document.getElementById('historyUploadStatus');
+    if (el) el.innerHTML = '<div class="parse-status error">请先选择指定的历史日期</div>';
     return;
   }
   if (historyUploadedImages.length === 0) {
-    document.getElementById('historyUploadStatus').innerHTML = '<div class="parse-status error">请先上传至少一张截图</div>';
+    var el = document.getElementById('historyUploadStatus');
+    if (el) el.innerHTML = '<div class="parse-status error">请先上传至少一张截图</div>';
     return;
   }
+  try { clientLog('INFO', 'parser', '开始解析历史截图: targetDate=' + targetDate + ', images=' + historyUploadedImages.length); } catch(ex) {}
   doParsing(historyUploadedImages, 'historyUploadStatus', 'btnHistoryParse', targetDate, closeHistoryUploadPanel);
 }
 
@@ -2185,55 +2688,40 @@ function debounce(fn, ms) {
   let timer;
   return function() { clearTimeout(timer); timer = setTimeout(fn, ms); };
 }
-window.addEventListener('hashchange', debounce(render, 50));
-window.addEventListener('load', () => {
-  localStorage.setItem('portfolio_data_version', '1');
-  if (localStorage.getItem('portfolio_history_cleared_v2') !== '1') {
-    localStorage.removeItem('portfolio_history');
-    localStorage.setItem('portfolio_history_cleared_v2', '1');
-  }
+window.addEventListener('hashchange', function() { render(); });
+window.addEventListener('load', async function() {
   initHistory();
+  // 加载 API 回退配置（生产域名 OSS 无后端时，自动使用 CF Tunnel API 地址）
+  try {
+    var configResp = await fetch('/api_config.json', { cache: 'no-cache' });
+    if (configResp.ok) {
+      var apiConfig = await configResp.json();
+      apiBaseFallback = apiConfig.api_base || '';
+    }
+  } catch(e) {}
+  // 初始化默认本金：6月3日~15日统一为1391339
+  var pMap = getPrincipalMap();
+  if (!pMap['2026-06-03']) {
+    setPrincipal('2026-06-03', 1391339);
+  }
+  await loadDataFromServer();
+  // 每次打开页面默认开启隐私模式（隐藏金额）
   localStorage.setItem('portfolio_privacy', '1');
   applyPrivacy();
   applySidebarCollapse();
-  const warnings = validateDataIntegrity();
-  if (warnings.length > 0) {
-    const content = document.getElementById('content');
-    content.innerHTML = '<div class="card" style="background:#fefce8;border:1px solid #fde68a;text-align:center;padding:40px"><h3 style="color:#92400e;margin-bottom:12px">⚠ 数据完整性警告</h3><ul style="text-align:left;color:#a16207;font-size:14px">' + warnings.map(w => '<li style="margin-bottom:6px">• ' + w + '</li>').join('') + '</ul><p style="margin-top:16px;color:#71717a;font-size:14px">请检查数据是否完整</p><button class="btn btn-primary" style="margin-top:12px" onclick="location.reload()">刷新页面</button></div>';
-    return;
-  }
   closeAccountDropdown();
-  render();
+  await render();
 });
 window.addEventListener('resize', () => {
   const route = getRoute();
-  if (route === '/' || route === '/history/overview' || route === '/entry') render();
+  if (route === '/history/overview' || route === '/entry' || route === '/') render();
 });
 </script>
-
-<div class="upload-overlay" id="uploadOverlay">
-  <div class="upload-dialog">
-    <div class="card-title" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
-      <span>当日上传持仓截图解析数据</span>
-      <button class="expand-btn" onclick="closeUploadPanel()" title="关闭">✕</button>
-    </div>
-    <div class="upload-slot" id="uploadDropZone" onclick="document.getElementById('uploadFileInput').click()" style="margin-bottom:12px">
-      <span class="placeholder" id="uploadPlaceholder">点击或拖拽上传持仓截图（支持多选）</span>
-    </div>
-    <div id="uploadFileList" style="max-height:150px;overflow-y:auto;margin-bottom:8px"></div>
-    <input type="file" id="uploadFileInput" accept="image/*" multiple style="display:none" onchange="handleFilesSelected(this)">
-    <div id="uploadStatus"></div>
-    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:16px">
-      <button class="btn" onclick="closeUploadPanel()">取消</button>
-      <button class="btn btn-upload" id="btnParse" onclick="startParsing()">开始解析</button>
-    </div>
-  </div>
-</div>
 
 <div class="upload-overlay" id="uploadOverlayHistory">
   <div class="upload-dialog">
     <div class="card-title" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
-      <span>历史日期上传持仓截图解析数据</span>
+      <span>上传持仓截图解析数据</span>
       <button class="expand-btn" onclick="closeHistoryUploadPanel()" title="关闭">✕</button>
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
@@ -2252,6 +2740,77 @@ window.addEventListener('resize', () => {
     </div>
   </div>
 </div>
+
+<!-- 调试面板：?debug=true 激活 -->
+<div id="debugPanel" style="display:none;position:fixed;bottom:0;left:0;right:0;height:70vh;background:#1a1a2e;color:#e0e0e0;font-family:monospace;font-size:12px;z-index:9999;overflow:auto;padding:16px;border-top:2px solid #00ff88">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span style="font-size:16px;font-weight:bold;color:#00ff88">📋 调试日志</span>
+    <div style="display:flex;gap:8px">
+      <button onclick="refreshDebugLogs()" style="padding:4px 12px;border:1px solid #00ff88;background:transparent;color:#00ff88;border-radius:4px;cursor:pointer">刷新</button>
+      <button onclick="clearDebugLogs()" style="padding:4px 12px;border:1px solid #ff4444;background:transparent;color:#ff4444;border-radius:4px;cursor:pointer">清空</button>
+      <button onclick="copyDebugLogs()" style="padding:4px 12px;border:1px solid #888;background:transparent;color:#888;border-radius:4px;cursor:pointer">复制</button>
+      <button onclick="document.getElementById('debugPanel').style.display='none'" style="padding:4px 12px;border:1px solid #666;background:transparent;color:#666;border-radius:4px;cursor:pointer">关闭</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+    <label><input type="checkbox" value="parser" checked onchange="filterDebugLogs()"> parser</label>
+    <label><input type="checkbox" value="upload" checked onchange="filterDebugLogs()"> upload</label>
+    <label><input type="checkbox" value="data" checked onchange="filterDebugLogs()"> data</label>
+    <label><input type="checkbox" value="error" checked onchange="filterDebugLogs()"> error</label>
+    <label><input type="checkbox" value="audit" checked onchange="filterDebugLogs()"> audit</label>
+    <label><input type="checkbox" value="perf" checked onchange="filterDebugLogs()"> perf</label>
+    <select onchange="filterDebugLogs()" id="debugLevelFilter" style="background:#333;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:2px 8px">
+      <option value="">全部级别</option>
+      <option value="ERROR">ERROR</option>
+      <option value="WARN">WARN</option>
+      <option value="INFO">INFO</option>
+    </select>
+  </div>
+  <div id="debugLogContent" style="white-space:pre-wrap;line-height:1.6"></div>
+</div>
+
+<script>
+(function() {
+  if (location.search.indexOf('debug=true') >= 0 || location.search.indexOf('logs=true') >= 0) {
+    document.getElementById('debugPanel').style.display = 'block';
+    refreshDebugLogs();
+  }
+})();
+function refreshDebugLogs() {
+  var logs = window.getClientLogs ? window.getClientLogs() : [];
+  var html = '';
+  var categories = {};
+  document.querySelectorAll('#debugPanel input[type=checkbox]:checked').forEach(function(cb) { categories[cb.value] = true; });
+  var levelFilter = document.getElementById('debugLevelFilter').value;
+  logs.forEach(function(l) {
+    if (!categories[l.category]) return;
+    if (levelFilter && l.level !== levelFilter) return;
+    var levelColor = l.level === 'ERROR' ? '#ff4444' : l.level === 'WARN' ? '#ffaa00' : '#00ff88';
+    var ts = (l.ts || '').substring(11, 19);
+    html += '<div style="border-bottom:1px solid #333;padding:4px 0"><span style="color:' + levelColor + ';font-weight:bold">[' + l.level + ']</span> ';
+    html += '<span style="color:#888">' + ts + '</span> ';
+    html += '<span style="color:#66ccff">' + (l.category || '') + '</span> ';
+    html += (l.message || '') + '</div>';
+  });
+  document.getElementById('debugLogContent').innerHTML = html || '<div style="color:#888;padding:20px;text-align:center">暂无日志</div>';
+}
+function clearDebugLogs() {
+  try { localStorage.removeItem('portfolio_client_logs'); } catch(e) {}
+  refreshDebugLogs();
+}
+function copyDebugLogs() {
+  var logs = window.getClientLogs ? window.getClientLogs() : [];
+  var text = logs.map(function(l) {
+    return '[' + l.ts + '] [' + l.level + '] [' + l.category + '] ' + l.message;
+  }).join('\n');
+  navigator.clipboard.writeText(text).then(function() {
+    document.getElementById('debugLogContent').innerHTML = '<div style="color:#00ff88;padding:20px;text-align:center">✅ 已复制 ' + logs.length + ' 条日志到剪贴板</div>';
+  }).catch(function() {
+    document.getElementById('debugLogContent').innerHTML = '<div style="color:#ff4444;padding:20px;text-align:center">❌ 复制失败</div>';
+  });
+}
+function filterDebugLogs() { refreshDebugLogs(); }
+</script>
 
 </body>
 </html>
