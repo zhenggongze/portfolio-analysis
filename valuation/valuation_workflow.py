@@ -12,6 +12,9 @@ import sys
 import time
 import random
 import argparse
+import subprocess
+import urllib3
+urllib3.disable_warnings()
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 
@@ -19,7 +22,7 @@ from datetime import datetime, timezone, timedelta
 # 配置
 # ============================================================
 
-PUSHDEER_KEY = "PDU41552TCTtotgq3EC5AvTOaXpiZG0eMTR6VAl8v"
+PUSHDEER_KEY = os.environ.get("PUSHDEER_KEY") or "PDU41552TCTtotgq3EC5AvTOaXpiZG0eMTR6VAl8v"
 PUSHDEER_URL = "https://api2.pushdeer.com/message/push"
 
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -32,6 +35,7 @@ LOGS_DIR = os.path.join(BASE_DIR, "logs")
 DANJUAN_CODE_MAP = {
     "000300": "SH000300",
     "000905": "SH000905",
+    "000993": "SH000993",
     "399006": "SZ399006",
     "399989": "SZ399989",
     "399997": "SZ399997",
@@ -45,6 +49,7 @@ DANJUAN_CODE_MAP = {
 ETF_RUN_URLS = {
     "000300": "https://www.etf.run/index/SH/000300",
     "000905": "https://www.etf.run/index/SH/000905",
+    "000993": "https://www.etf.run/index/SH/000993",
     "399006": "https://www.etf.run/index/SZ/399006",
     "399989": "https://www.etf.run/index/SZ/399989",
     "399997": "https://www.etf.run/index/SZ/399997",
@@ -57,6 +62,7 @@ INDEX_CONFIG = [
     {"code": "159995", "name": "芯片ETF", "category": "A股"},
     {"code": "515880", "name": "通信ETF", "category": "A股"},
     {"code": "399989", "name": "中证医疗", "category": "A股"},
+    {"code": "000993", "name": "全指信息", "category": "A股"},
     {"code": "000300", "name": "沪深300", "category": "A股"},
     {"code": "000905", "name": "中证500", "category": "A股"},
     {"code": "399006", "name": "创业板", "category": "A股"},
@@ -159,97 +165,113 @@ def find_min_value_with_date(history):
 
 
 def fetch_etf_run_data(index_code, logger):
-    """从ETF.run获取等权PE/PB辅助数据"""
+    """从ETF.run获取等权PE/PB辅助数据（带重试和域名切换）"""
     url = ETF_RUN_URLS.get(index_code)
     if not url:
         return None
 
-    try:
-        logger.debug(f"请求ETF.run: {url}")
-        resp = requests.get(url, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                     "Accept-Encoding": "gzip, deflate, br"})
+    alt_url = url.replace("www.etf.run", "etf.run") if "www.etf.run" in url else url.replace("etf.run", "www.etf.run")
+    urls_to_try = [url, alt_url]
+    if "www." not in url:
+        urls_to_try = [url] + [url.replace("etf.run", "www.etf.run")]
 
-        if resp.status_code >= 500:
-            logger.warning(f"ETF.run {index_code} 服务端错误 (HTTP {resp.status_code})，网站可能暂时不可用")
-            return None
-        if resp.status_code >= 400:
-            logger.warning(f"ETF.run {index_code} 请求失败 (HTTP {resp.status_code})")
-            return None
-
-        content = resp.content
-
-        if content[:2] == b'\xce\xb2' or len(content) < 100:
+    for url_attempt in urls_to_try:
+        for attempt in range(2):
             try:
-                import brotli
-                content = brotli.decompress(content)
-                logger.debug(f"ETF.run {index_code} brotli解压成功")
-            except ImportError:
-                logger.debug("brotli 库未安装，无法解压")
-                return None
-            except Exception as e:
-                logger.debug(f"ETF.run {index_code} brotli解压失败: {e}")
-                return None
+                logger.debug(f"请求ETF.run [{attempt+1}/2]: {url_attempt}")
+                resp = requests.get(url_attempt, timeout=20, verify=False,
+                                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                             "Accept-Encoding": "gzip, deflate, br"})
 
-        html = content.decode("utf-8", errors="ignore")
-
-        # 查找 compressedIndexDaily JSON
-        marker = "compressedIndexDaily"
-        start = html.find(marker)
-        if start == -1:
-            logger.warning(f"ETF.run {index_code} 未找到 compressedIndexDaily")
-            return None
-
-        # 提取JSON字符串
-        json_start = html.find('{', start)
-        if json_start == -1:
-            return None
-
-        brace_count = 0
-        json_end = json_start
-        for i in range(json_start, len(html)):
-            if html[i] == '{':
-                brace_count += 1
-            elif html[i] == '}':
-                brace_count -= 1
-                if brace_count == 0:
-                    json_end = i + 1
+                if 200 <= resp.status_code < 400:
                     break
+                logger.debug(f"ETF.run {index_code} HTTP {resp.status_code}, 重试...")
+                resp = None
+                if attempt < 1:
+                    time.sleep(5)
+            except Exception as e:
+                logger.debug(f"ETF.run {index_code} 异常: {e}")
+                resp = None
+                if attempt < 1:
+                    time.sleep(5)
 
-        json_str = html[json_start:json_end]
-        data = json.loads(json_str)
+        if resp is not None and 200 <= resp.status_code < 400:
+            break
+    else:
+        logger.warning(f"ETF.run {index_code} 所有尝试均失败，跳过")
+        return None
 
-        field_names = data.get("fieldNames", [])
-        values = data.get("values", [])
+    content = resp.content
 
-        if not field_names or not values or not values[0]:
+    if content[:2] == b'\xce\xb2' or len(content) < 100:
+        try:
+            import brotli
+            content = brotli.decompress(content)
+            logger.debug(f"ETF.run {index_code} brotli解压成功")
+        except ImportError:
+            logger.debug("brotli 库未安装，无法解压")
+            return None
+        except Exception as e:
+            logger.debug(f"ETF.run {index_code} brotli解压失败: {e}")
             return None
 
-        latest = values[0]
-        result = {}
-        for i, name in enumerate(field_names):
-            if i < len(latest):
-                result[name] = latest[i]
+    html = content.decode("utf-8", errors="ignore")
 
-        output = {}
-        if "equalWeightedPeTtm" in result:
-            output["ew_pe"] = result["equalWeightedPeTtm"]
-        if "equalWeightedPbTtm" in result:
-            output["ew_pb"] = result["equalWeightedPbTtm"]
-        if "year10PePercentile" in result:
-            raw = result["year10PePercentile"]
-            output["ew_pe_pct"] = round(raw * 100, 2) if raw is not None else None
-        if "year10PbPercentile" in result:
-            raw = result["year10PbPercentile"]
-            output["ew_pb_pct"] = round(raw * 100, 2) if raw is not None else None
+    # 查找 compressedIndexDaily JSON
+    marker = "compressedIndexDaily"
+    start = html.find(marker)
+    if start == -1:
+        logger.warning(f"ETF.run {index_code} 未找到 compressedIndexDaily")
+        return None
 
-        if output:
-            logger.info(f"ETF.run {index_code} 等权数据获取成功")
+    # 提取JSON字符串
+    json_start = html.find('{', start)
+    if json_start == -1:
+        return None
+
+    brace_count = 0
+    json_end = json_start
+    for i in range(json_start, len(html)):
+        if html[i] == '{':
+            brace_count += 1
+        elif html[i] == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                json_end = i + 1
+                break
+
+    json_str = html[json_start:json_end]
+    data = json.loads(json_str)
+
+    field_names = data.get("fieldNames", [])
+    values = data.get("values", [])
+
+    if not field_names or not values or not values[0]:
+        return None
+
+    latest = values[0]
+    result = {}
+    for i, name in enumerate(field_names):
+        if i < len(latest):
+            result[name] = latest[i]
+
+    output = {}
+    if "equalWeightedPeTtm" in result:
+        output["ew_pe"] = result["equalWeightedPeTtm"]
+    if "equalWeightedPbTtm" in result:
+        output["ew_pb"] = result["equalWeightedPbTtm"]
+    if "year10PePercentile" in result:
+        raw = result["year10PePercentile"]
+        output["ew_pe_pct"] = round(raw * 100, 2) if raw is not None else None
+    if "year10PbPercentile" in result:
+        raw = result["year10PbPercentile"]
+        output["ew_pb_pct"] = round(raw * 100, 2) if raw is not None else None
+
+    if output:
+        logger.info(f"ETF.run {index_code} 等权数据获取成功")
         return output if output else None
 
-    except Exception as e:
-        logger.warning(f"ETF.run {index_code} 获取失败: {e}")
-        return None
+    return None
 
 
 # ============================================================
@@ -374,7 +396,7 @@ INDEX_KLINES_MARKET = {
 KLINE_ONLY_CODES = {"159995", "515880"}
 
 def fetch_index_kline(index_code, logger):
-    """从东方财富获取ETF日K线历史点位数据"""
+    """从东方财富/腾讯获取ETF日K线历史点位数据（腾讯主 + 东财curl + requests + 实时报价兜底）"""
     result = {"price_history": [], "error": None}
 
     code = index_code
@@ -384,56 +406,137 @@ def fetch_index_kline(index_code, logger):
         result["error"] = f"未知ETF市场代码: {code}"
         return result
 
-    try:
-        url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=5000"
-        resp = None
+    history = []
+    tcode = f"sz{code}"
+
+    # 方法1: 腾讯财经K线（最稳定，绕过东财封锁）
+    for attempt in range(3):
+        try:
+            url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={tcode},day,,,1200,qfq"
+            r = subprocess.run(
+                ["curl.exe", "-sL", "-m", "20", url],
+                capture_output=True, text=True, timeout=25
+            )
+            if r.returncode == 0 and r.stdout and len(r.stdout) > 100:
+                data = json.loads(r.stdout)
+                days = data.get("data", {}).get(tcode, {}).get("day", [])
+                for k in days:
+                    if len(k) >= 4:
+                        dt = datetime.strptime(k[0], "%Y-%m-%d")
+                        history.append({"ts": int(dt.timestamp() * 1000), "value": float(k[2])})
+                if history:
+                    logger.info(f"K线 {code} 腾讯: {len(history)} 条")
+                    break
+            if attempt < 2:
+                time.sleep(5)
+        except Exception as e:
+            logger.warning(f"K线 {code} 腾讯第{attempt+1}次失败: {e}")
+            if attempt < 2:
+                time.sleep(5)
+
+    # 方法2: subprocess + curl.exe 东财（备用）
+    if not history:
         for attempt in range(3):
             try:
-                resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                break
-            except Exception:
+                url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&end=20500101&lmt=2500"
+                r = subprocess.run(
+                    ["curl.exe", "-s", "-m", "25", url],
+                    capture_output=True, text=True, timeout=30
+                )
+                if r.returncode == 0 and r.stdout and len(r.stdout) > 50:
+                    data = json.loads(r.stdout)
+                    klines = data.get("data", {}).get("klines", [])
+                    for k in klines:
+                        parts = k.split(",")
+                        if len(parts) >= 4:
+                            dt = datetime.strptime(parts[0], "%Y-%m-%d")
+                            history.append({"ts": int(dt.timestamp() * 1000), "value": float(parts[2])})
+                    if history:
+                        logger.info(f"K线 {code} curl获取: {len(history)} 条")
+                        break
                 if attempt < 2:
-                    time.sleep(5)
-        if not resp:
-            result["error"] = "3次请求均失败"
-            return result
-        data = resp.json()
-        stock_data = data.get("data", {})
-        klines = stock_data.get("klines", [])
-        history = []
-        for k in klines:
-            parts = k.split(",")
-            if len(parts) >= 4:
-                date_str = parts[0]
-                close_price = float(parts[2])
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
-                ts = int(dt.timestamp() * 1000)
-                history.append({"ts": ts, "value": close_price})
-        if history:
-            history.sort(key=lambda x: x["ts"])
-            result["price_history"] = history
-            logger.info(f"K线 {code} 点位历史: {len(history)} 条 (最后一条 {history[-1]['value']})")
-        else:
-            logger.warning(f"K线 {code} 返回空数据，尝试实时报价兜底...")
+                    time.sleep(8)
+            except Exception as e:
+                logger.warning(f"K线 {code} curl第{attempt+1}次失败: {e}")
+                if attempt < 2:
+                    time.sleep(8)
+
+    # 方法3: requests库尝试（降级）
+    if not history:
+        logger.warning(f"K线 {code} curl全部失败，尝试requests...")
+        for attempt in range(3):
             try:
-                quote_url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f43,f57,f58"
-                qresp = requests.get(quote_url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                qdata = qresp.json()
-                qstock = qdata.get("data", {})
-                current_val = qstock.get("f43")
-                if current_val and float(current_val) > 0:
-                    now_ts = int(time.time() * 1000)
-                    result["price_history"] = [{"ts": now_ts, "value": float(current_val)}]
-                    logger.info(f"K线 {code} 实时报价兜底: {current_val}")
-                else:
-                    logger.warning(f"K线 {code} 实时报价也失败: {qresp.text[:200]}")
-            except Exception as e2:
-                logger.warning(f"K线 {code} 实时报价异常: {e2}")
-    except Exception as e:
-        logger.warning(f"K线 {code} 获取失败: {e}")
-        result["error"] = str(e)
+                url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&end=20500101&lmt=2500"
+                resp = requests.get(url, timeout=25, verify=False,
+                                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                             "Referer": "https://quote.eastmoney.com/",
+                                             "Accept": "application/json"})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    klines = data.get("data", {}).get("klines", [])
+                    for k in klines:
+                        parts = k.split(",")
+                        if len(parts) >= 4:
+                            dt = datetime.strptime(parts[0], "%Y-%m-%d")
+                            history.append({"ts": int(dt.timestamp() * 1000), "value": float(parts[2])})
+                    if history:
+                        logger.info(f"K线 {code} requests获取: {len(history)} 条")
+                        break
+            except Exception as e:
+                logger.warning(f"K线 {code} requests第{attempt+1}次失败: {e}")
+                if attempt < 2:
+                    time.sleep(8)
+
+    # 方法4: 实时报价兜底（最后手段）
+    if not history:
+        logger.warning(f"K线 {code} 全部失败，尝试实时报价兜底...")
+        try:
+            quote_url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f43,f57,f58"
+            qresp = requests.get(quote_url, timeout=15, verify=False,
+                                 headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"})
+            qdata = qresp.json()
+            current_val = qdata.get("data", {}).get("f43")
+            if current_val and float(current_val) > 0:
+                now_ts = int(time.time() * 1000)
+                history = [{"ts": now_ts, "value": float(current_val)}]
+                logger.info(f"K线 {code} 实时报价兜底: {current_val}")
+        except Exception as e2:
+            logger.warning(f"K线 {code} 实时报价也失败: {e2}")
+
+    if history:
+        history.sort(key=lambda x: x["ts"])
+        adjust_for_etf_splits(history, code, logger)
+        result["price_history"] = history
+        logger.info(f"K线 {code} 最终: {len(history)} 条 (最新 {history[-1]['value']})")
+    else:
+        logger.warning(f"K线 {code} 所有方法均失败")
+        result["error"] = "所有数据源均失败"
 
     return result
+
+
+def adjust_for_etf_splits(history, code, logger):
+    if len(history) < 2:
+        return
+    adjusted = False
+    for i in range(1, len(history)):
+        prev_v = history[i - 1]["value"]
+        curr_v = history[i]["value"]
+        if prev_v <= 0 or curr_v <= 0:
+            continue
+        change = abs(curr_v / prev_v - 1)
+        if change > 0.30:
+            ratio = prev_v / curr_v
+            split_date = datetime.fromtimestamp(history[i]["ts"] / 1000).strftime("%Y-%m-%d")
+            logger.warning(
+                f"K线 {code} 检测到跳空: {split_date} 价格 {prev_v:.3f}→{curr_v:.3f} "
+                f"(变化 {change*100:.0f}%), 判定为份额拆分, 自动复权(比率 {ratio:.2f}:1)"
+            )
+            for j in range(i):
+                history[j]["value"] = round(history[j]["value"] / ratio, 4)
+            adjusted = True
+    if adjusted:
+        logger.info(f"K线 {code} 拆分复权完成")
 
 
 # ============================================================
@@ -1069,18 +1172,17 @@ def run_workflow(push=False, detail_url=None, logger=None):
             errors.append({"index": config["name"], "error": str(e)})
             # 跳过，不在结果中加入兜底数据
 
-    # 数据校验：点位分析ETF全部缺失才跳过推送
-    kline_missing = [r for r in results if r["code"] in KLINE_ONLY_CODES and (r.get("pe") is None or r.get("low_pe") is None)]
+    # 数据校验：PE指数全部缺失才跳过推送，K线失败仅跳过不拦截
     pe_missing = [r for r in results if r["code"] not in KLINE_ONLY_CODES and (r.get("pe") is None or r.get("pe_pct") is None)]
 
-    if len(kline_missing) == len([r for r in results if r["code"] in KLINE_ONLY_CODES]) and len(kline_missing) > 0:
-        logger.error(f"所有点位分析ETF数据均不完整，取消推送: {[r['name'] for r in kline_missing]}")
+    if pe_missing:
+        logger.error(f"PE指数数据全部缺失，取消推送: {[r['name'] for r in pe_missing]}")
         push = False
-    elif pe_missing:
-        logger.warning(f"部分PE指数数据缺失，仍推送: {[r['name'] for r in pe_missing]}")
-    if kline_missing and len(kline_missing) < len([r for r in results if r["code"] in KLINE_ONLY_CODES]):
+
+    kline_missing = [r for r in results if r["code"] in KLINE_ONLY_CODES and (r.get("pe") is None or r.get("low_pe") is None)]
+    if kline_missing:
         for r in kline_missing:
-            logger.warning(f"{r['name']} 点位数据不完整（当前={r.get('pe')}），仍推送")
+            logger.warning(f"{r['name']} K线数据缺失，本次跳过")
 
     # 生成简版报告
     simple_report = generate_simple_report(results, date_str, detail_url)
